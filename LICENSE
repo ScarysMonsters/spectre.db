@@ -1,0 +1,165 @@
+SPECTRE.DB SOURCE AVAILABLE LICENSE
+Version 1.0 — 2026
+
+Copyright (c) 2026 ScarysMonsters (https://github.com/ScarysMonsters)
+All rights reserved on the original work.
+
+================================================================================
+DEFINITIONS
+================================================================================
+
+"Software" refers to the spectre.db source code, documentation, examples,
+configuration files, and any associated materials published in this repository.
+
+"Author" refers to ScarysMonsters, the sole original creator and legal owner
+of the Software.
+
+"You" refers to any individual or legal entity exercising permissions granted
+by this License.
+
+"Derivative Work" means any work that is based on, incorporates, modifies,
+translates, or is otherwise derived from the Software or any substantial part
+of it, regardless of the form in which it is distributed.
+
+"Commercial Use" means any use of the Software or a Derivative Work that is
+primarily intended for or directed toward commercial advantage or monetary
+compensation, including but not limited to selling, licensing, or providing
+the Software as a service.
+
+================================================================================
+GRANT OF RIGHTS
+================================================================================
+
+Subject to the conditions and limitations set forth in this License, the Author
+grants You a worldwide, royalty-free, non-exclusive, non-transferable license to:
+
+  1. Use the Software for personal, educational, or non-commercial purposes.
+
+  2. Copy and redistribute the Software in source or compiled form, provided
+     that You comply with the conditions in this License.
+
+  3. Modify the Software and create Derivative Works, provided that You comply
+     with the conditions in this License.
+
+  4. Integrate the Software or Derivative Works into your own projects,
+     including Discord bots, automation tools, and other applications, provided
+     that such integration complies with the conditions in this License.
+
+================================================================================
+CONDITIONS
+================================================================================
+
+Any exercise of the rights granted above must satisfy all of the following
+conditions:
+
+  1. ATTRIBUTION REQUIRED
+     All copies, redistributions, or Derivative Works — whether in source or
+     binary form — must retain, in a clearly visible location:
+
+       a. The original copyright notice:
+          "Copyright (c) 2025 ScarysMonsters — spectre.db"
+
+       b. A reference to this License and a link to the original repository:
+          https://github.com/ScarysMonsters/spectre.db
+
+       c. A clear indication of any modifications made to the original Software,
+          with a description of what was changed and when.
+
+     Attribution must not suggest that the Author endorses You or your use of
+     the Software.
+
+  2. NO OWNERSHIP CLAIM
+     You may not represent, claim, imply, or otherwise assert — publicly or
+     privately — that You are the original author, creator, or owner of the
+     Software or any substantial portion of it. This prohibition applies
+     regardless of the extent of your modifications.
+
+     Publishing a Derivative Work under a different name does not transfer,
+     diminish, or otherwise affect the Author's intellectual property rights
+     over the original Software.
+
+  3. LICENSE PRESERVATION
+     All copies, redistributions, and Derivative Works must include a copy of
+     this License in full, without modification.
+
+  4. NO MISREPRESENTATION OF ORIGIN
+     You may not remove, obscure, alter, or replace any copyright notices,
+     license headers, authorship statements, or attribution markers present in
+     the original Software.
+
+  5. COMMERCIAL USE REQUIRES PRIOR WRITTEN CONSENT
+     Any Commercial Use of the Software or any Derivative Work requires the
+     Author's explicit, prior written authorization. To request commercial
+     authorization, contact the Author through the official repository.
+
+     Unauthorized Commercial Use constitutes a material breach of this License
+     and an infringement of the Author's intellectual property rights.
+
+================================================================================
+INTELLECTUAL PROPERTY AND ENFORCEMENT
+================================================================================
+
+The Software, including its architecture, design, logic, and original
+expression, is the exclusive intellectual property of ScarysMonsters.
+
+The Author reserves all rights not expressly granted in this License, including
+but not limited to:
+
+  — The right to revoke this License for any individual or entity found in
+    breach of its conditions, effective immediately upon written notice.
+
+  — The right to issue takedown requests, DMCA notices, or equivalent
+    intellectual property enforcement actions against any person, organization,
+    platform, or registry (including but not limited to npm, GitHub, GitLab,
+    PyPI, or any package registry) distributing the Software or a Derivative
+    Work in violation of this License.
+
+  — The right to pursue civil remedies, including injunctive relief and
+    damages, under applicable copyright and intellectual property laws, in any
+    jurisdiction where such violations occur.
+
+  — The right to request the removal or delisting of any project, package,
+    repository, or publication that infringes upon the Author's rights under
+    this License or applicable law, through administrative, legal, or platform
+    enforcement mechanisms.
+
+The Author's failure to enforce any provision of this License at any time shall
+not be construed as a waiver of the Author's rights to enforce such provision
+at a later time or in other circumstances.
+
+================================================================================
+DISCLAIMER OF WARRANTIES
+================================================================================
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE, AND NON-INFRINGEMENT.
+
+IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY CLAIM, DAMAGES, OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT, OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+================================================================================
+TERMINATION
+================================================================================
+
+This License and the rights granted hereunder will terminate automatically and
+immediately upon any breach by You of the conditions set forth in this License.
+
+Upon termination, You must cease all use, distribution, and possession of the
+Software and all Derivative Works, and destroy all copies in your control.
+
+Termination of this License does not limit the Author's right to pursue
+additional remedies for damages or injunctive relief arising from the breach.
+
+================================================================================
+CONTACT
+================================================================================
+
+For questions regarding this License, commercial use authorization, or to
+report a violation:
+
+  GitHub:     https://github.com/ScarysMonsters
+  Repository: https://github.com/ScarysMonsters/spectre.db
+  Issues:     https://github.com/ScarysMonsters/spectre.db/issues

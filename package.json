@@ -1,0 +1,44 @@
+{
+  "name": "spectre.db",
+  "version": "1.0.0",
+  "description": "A lightweight, production-grade file-based JSON database for Node.js. Zero dependencies, WAL-based persistence, LRU cache, atomic writes, and optional AES-256 encryption.",
+  "main": "index.js",
+  "files": [
+    "index.js",
+    "src/",
+    "examples/",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "start": "node examples/basic.js"
+  },
+  "keywords": [
+    "database",
+    "json",
+    "storage",
+    "discord",
+    "discord-bot",
+    "key-value",
+    "wal",
+    "lru",
+    "cache",
+    "lightweight",
+    "file-based",
+    "no-dependencies",
+    "nodejs"
+  ],
+  "author": "scarysmonsters",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/scarysmonsters/spectre.db.git"
+  },
+  "bugs": {
+    "url": "https://github.com/scarysmonsters/spectre.db/issues"
+  },
+  "homepage": "https://github.com/scarysmonsters/spectre.db#readme"
+}
