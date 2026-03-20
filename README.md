@@ -233,7 +233,7 @@ new Database(path)
 ## Contributing
 
 - Before creating an issue, please ensure that it hasn't already been reported/suggested.
-- See [the contribution guide](https://github.com/ScarysMonsters/spectre.db/blob/main/.github/CONTRIBUTING.md) if you'd like to submit a PR.
+- See [the contribution guide](https://github.com/ScarysMonsters/spectre.db/blob/main/CONTRIBUTING.md) if you'd like to submit a PR.
 
 ## Need help?
 
