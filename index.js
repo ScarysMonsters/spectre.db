@@ -1,7 +1,7 @@
 'use strict';
 
 const path = require('path');
-const { Engine, Table } = require('./src/engine');
+const { Engine, Table } = require('./src/core/engine');
 
 function normalizePath(filePath) {
   return path.resolve(filePath)
@@ -18,6 +18,7 @@ function mapLegacyOptions(opts) {
   if (opts.compress     !== undefined) mapped.compress         = opts.compress;
   if (opts.encryptionKey !== undefined) mapped.encryptionKey   = opts.encryptionKey;
   if (opts.backupCount  !== undefined) mapped.backupCount      = opts.backupCount;
+  if (opts.encryptBackups !== undefined) mapped.encryptBackups = opts.encryptBackups;
 
   if (opts.autoSave !== undefined) {
     mapped.compactInterval  = opts.autoSave > 0 ? opts.autoSave : 0;
@@ -42,11 +43,16 @@ class Database extends Engine {
 
     this._legacyWarmKeys = Array.isArray(options.warmKeys) ? options.warmKeys : [];
 
-    this.ready = this.ready.then(() => {
+    // Chain warmKeys loading after ready
+    this._readyPromise = this._readyPromise.then(() => {
       for (const key of this._legacyWarmKeys) {
         try { this.get(key); } catch {}
       }
     });
+  }
+
+  get ready() {
+    return this._readyPromise;
   }
 
   transaction(arg) {

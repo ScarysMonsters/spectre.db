@@ -1,6 +1,6 @@
 {
   "name": "spectre.db",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "A lightweight, production-grade file-based JSON database for Node.js. Zero dependencies, WAL-based persistence, LRU cache, atomic writes, and optional AES-256 encryption.",
   "main": "index.js",
   "files": [
@@ -11,7 +11,13 @@
     "LICENSE"
   ],
   "scripts": {
-    "start": "node examples/basic.js"
+    "start": "node examples/basic.js",
+    "test": "jest",
+    "test:watch": "jest --watch",
+    "test:coverage": "jest --coverage",
+    "test:unit": "jest tests/unit",
+    "test:integration": "jest tests/integration",
+    "test:fuzz": "jest tests/fuzzing"
   },
   "keywords": [
     "database",
@@ -32,6 +38,10 @@
   "license": "MIT",
   "engines": {
     "node": ">=18.0.0"
+  },
+  "devDependencies": {
+    "jest": "^29.7.0",
+    "lz4": "^0.6.5"
   },
   "repository": {
     "type": "git",
