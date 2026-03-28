@@ -321,8 +321,8 @@ db.set('auth.secret', 'xyz789');
 
 ```js
 // spectre.db validates keys automatically
-db.set('user.name', 'Alice'); // ✅ Valid
-db.set('__proto__.polluted', 'value'); // ❌ Rejected
+db.set('user.name', 'Alice'); // Valid
+db.set('__proto__.polluted', 'value'); // Rejected
 
 // Validate values before setting
 try {
