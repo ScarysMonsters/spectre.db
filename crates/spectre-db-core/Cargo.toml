@@ -1,0 +1,19 @@
+[package]
+name = "spectre-db-core"
+version = "2.0.0"
+edition = "2021"
+license = "CUSTOM"
+description = "High-performance Rust core engine for spectre.db v2 (binary format, JSON v1 compatible)"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order", "float_roundtrip"] }
+crc32fast = "1"
+flate2 = { version = "1", default-features = false, features = ["rust_backend"] }
+aes-gcm = "0.10"
+scrypt = { version = "0.11", default-features = false }
+base64 = "0.22"
+libc = "0.2"
+unicode-normalization = "0.1"
+getrandom = "0.2"
+zstd = "0.13"

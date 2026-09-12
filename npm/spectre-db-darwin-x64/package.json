@@ -1,0 +1,26 @@
+{
+  "name": "spectre-db-darwin-x64",
+  "version": "2.0.0",
+  "description": "spectre-db native binary for darwin-x64 (napi-rs prebuild)",
+  "main": "index.js",
+  "os": [
+    "darwin"
+  ],
+  "cpu": [
+    "x64"
+  ],
+  "files": [
+    "index.js",
+    "spectre.db-rs.node",
+    "README.md",
+    "LICENSE"
+  ],
+  "license": "SEE LICENSE IN LICENSE",
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ScarysMonsters/spectre.db.git"
+  }
+}

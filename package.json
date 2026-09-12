@@ -1,0 +1,75 @@
+{
+  "name": "spectre-db",
+  "version": "2.0.0",
+  "description": "High-performance key-value storage in Rust for Node.js & Bun: binary v2 format (CRC32, WAL v3 + LSN, segmented incremental compaction), lazy cursors, secondary indexes, raw binary values, zstd compression, dual-engine with v1.1.0 JSON fallback.",
+  "main": "index.js",
+  "scripts": {
+    "build": "bash scripts/build.sh",
+    "test": "jest --runInBand",
+    "smoke": "node scripts/smoke.js",
+    "test:fallback": "cross-env SPECTRE_FORCE_FALLBACK=1 jest --runInBand tests/fallback.test.js",
+    "test:fault": "jest --runInBand tests/fault-injection.test.js",
+    "check-versions": "node scripts/check-versions.js",
+    "prepublishOnly": "node scripts/check-versions.js"
+  },
+  "keywords": [
+    "database",
+    "json",
+    "key-value",
+    "rust",
+    "napi",
+    "wal",
+    "binary",
+    "lmdb",
+    "nodejs",
+    "bun",
+    "spectre"
+  ],
+  "author": "ScarysMonsters",
+  "license": "SEE LICENSE IN LICENSE",
+  "engines": {
+    "node": ">=18.0.0",
+    "bun": ">=1.0.0"
+  },
+  "files": [
+    "index.js",
+    "index.d.ts",
+    "fallback/",
+    "examples/",
+    "README.md",
+    "CHANGELOG.md",
+    "GUIDE.md",
+    "docs/FORMATS.md",
+    "LICENSE"
+  ],
+  "devDependencies": {
+    "cross-env": "^7.0.3",
+    "jest": "^29.7.0"
+  },
+  "types": "index.d.ts",
+  "exports": {
+    ".": {
+      "require": "./index.js",
+      "import": "./index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "optionalDependencies": {
+    "spectre-db-linux-x64-gnu": "2.0.0",
+    "spectre-db-linux-x64-musl": "2.0.0",
+    "spectre-db-darwin-x64": "2.0.0",
+    "spectre-db-darwin-arm64": "2.0.0",
+    "spectre-db-win32-x64-msvc": "2.0.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ScarysMonsters/spectre.db.git"
+  },
+  "bugs": {
+    "url": "https://github.com/ScarysMonsters/spectre.db/issues"
+  },
+  "homepage": "https://github.com/ScarysMonsters/spectre.db#readme"
+}

@@ -1,0 +1,33 @@
+name: Test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, macos-14, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install dependencies
+        run: npm ci
+      - name: Rust unit tests
+        run: cargo test -p spectre-db-core
+      - name: Build native module
+        run: npm run build
+      - name: JS integration tests (native engine)
+        run: npx jest --runInBand
+      - name: JS integration tests (fallback engine)
+        run: npm run test:fallback
+      - name: Fault injection
+        run: npm run test:fault

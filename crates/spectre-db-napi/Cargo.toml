@@ -1,0 +1,15 @@
+[package]
+name = "spectre-db-napi"
+version = "2.0.0"
+edition = "2021"
+license = "CUSTOM"
+description = "Node.js / Bun native bindings (napi-rs v3) for spectre.db v2"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+spectre-db-core = { path = "../spectre-db-core" }
+napi = { version = "3", default-features = false, features = ["napi4"] }
+napi-derive = "3"
+serde_json = "1"
