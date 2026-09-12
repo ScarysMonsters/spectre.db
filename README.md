@@ -30,6 +30,21 @@
 
 ---
 
+## Documentation
+
+- [Documentation index](./docs/README.md)
+- [Getting Started](./docs/GETTING-STARTED.md) — installation, first database, migration
+- [API Reference](./docs/API.md) — every method, option, event and error code
+- [Advanced Usage](./docs/ADVANCED.md) — scan/cursor, indexes, raw values, compaction, multi-process
+- [Durability & Crash Recovery](./docs/DURABILITY.md) — WAL, durability modes, backups, fault injection
+- [Encryption](./docs/ENCRYPTION.md) — sensitive keys, backups, whole-snapshot encryption
+- [Architecture](./docs/ARCHITECTURE.md) — project layout, Rust core, napi bridge, fallback engine
+- [Storage Formats](./docs/FORMATS.md) — on-disk specification
+- [Troubleshooting](./docs/TROUBLESHOOTING.md) — error reference and FAQ
+- [Releasing](./docs/RELEASING.md) — versioning, CI, prebuilds, npm publishing
+
+---
+
 ## Features
 
 ### Core (v1.1.0 compatible)

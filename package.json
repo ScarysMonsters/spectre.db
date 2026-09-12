@@ -39,7 +39,7 @@
     "README.md",
     "CHANGELOG.md",
     "GUIDE.md",
-    "docs/FORMATS.md",
+    "docs/",
     "LICENSE"
   ],
   "devDependencies": {

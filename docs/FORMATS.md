@@ -1,5 +1,8 @@
 # spectre.db Storage Formats (v2)
 
+Part of the [documentation index](./README.md). See also [API.md](./API.md) and
+[DURABILITY.md](./DURABILITY.md).
+
 This document specifies every on-disk format produced by spectre.db v2
 (npm: `@sexfy/spectre.db`) and its compatibility with spectre.db v1.1.0 JSON files.
 

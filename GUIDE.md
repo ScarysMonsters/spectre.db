@@ -744,6 +744,9 @@ with the native engine and run `await db.migrate('json')`.
 
 ## Support
 
+- [Documentation index](./docs/README.md)
+- [API Reference](./docs/API.md)
+- [Troubleshooting](./docs/TROUBLESHOOTING.md)
 - [GitHub Issues](https://github.com/ScarysMonsters/spectre.db/issues)
 - [Main documentation](./README.md)
 - [On-disk formats](./docs/FORMATS.md)
