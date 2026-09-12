@@ -1,6 +1,6 @@
 'use strict';
 
-const { Database, hasNativeEngine } = require('spectredb');
+const { Database, hasNativeEngine } = require('@sexfy/spectre.db');
 
 async function main() {
   if (!hasNativeEngine) {

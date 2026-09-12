@@ -1,6 +1,6 @@
 'use strict';
 
-const { Database } = require('spectredb');
+const { Database } = require('@sexfy/spectre.db');
 
 async function encryptionExample() {
   console.log('--- Encryption ---');

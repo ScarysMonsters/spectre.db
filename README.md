@@ -9,7 +9,7 @@
 
 ## About
 
-<strong>Welcome to `spectredb`, the Rust rewrite of [spectre.db](https://www.npmjs.com/package/spectre.db) — a persistent key-value database engineered for Discord bots, small services and embedded workloads.</strong>
+<strong>Welcome to `@sexfy/spectre.db`, the Rust rewrite of [spectre.db](https://www.npmjs.com/package/spectre.db) — a persistent key-value database engineered for Discord bots, small services and embedded workloads.</strong>
 
 - **Drop-in API** — `get`, `set`, `transaction`, `table`, events: every v1.1.0 call keeps working.
 - **Native speed** — the store lives in Rust; values cross the JS↔Rust boundary once.
@@ -19,8 +19,8 @@
 
 <div align="center">
   <p>
-    <a href="https://www.npmjs.com/package/spectredb"><img src="https://img.shields.io/npm/v/spectredb.svg" alt="npm version" /></a>
-    <a href="https://www.npmjs.com/package/spectredb"><img src="https://img.shields.io/npm/dt/spectredb.svg" alt="npm downloads" /></a>
+    <a href="https://www.npmjs.com/package/@sexfy/spectre.db"><img src="https://img.shields.io/npm/v/@sexfy/spectre.db.svg" alt="npm version" /></a>
+    <a href="https://www.npmjs.com/package/@sexfy/spectre.db"><img src="https://img.shields.io/npm/dt/@sexfy/spectre.db.svg" alt="npm downloads" /></a>
     <a href="https://github.com/ScarysMonsters/spectre.db"><img src="https://img.shields.io/github/stars/ScarysMonsters/spectre.db?style=flat" alt="GitHub stars" /></a>
     <a href="https://github.com/ScarysMonsters/spectre.db/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-Custom-blue.svg" alt="license" /></a>
   </p>
@@ -73,7 +73,7 @@
 > **Node.js 18.0.0 or newer is required.** Bun 1.0+ is supported as well.
 
 ```sh-session
-npm install spectredb@latest
+npm install @sexfy/spectre.db@latest
 ```
 
 Prebuilt native binaries are installed automatically as optional dependencies — there is no build step and no postinstall download.
@@ -83,7 +83,7 @@ Prebuilt native binaries are installed automatically as optional dependencies �
 ## Quick Start
 
 ```js
-const { Database } = require('spectredb');
+const { Database } = require('@sexfy/spectre.db');
 
 const db = new Database('./data/mydb', {
   cache: true,
@@ -107,7 +107,7 @@ The default `format: 'auto'` opens existing v1.1.0 JSON databases as-is and crea
 
 ```js
 const { Client, GatewayIntentBits } = require('discord.js');
-const { Database } = require('spectredb');
+const { Database } = require('@sexfy/spectre.db');
 
 const client = new Client({ intents: [GatewayIntentBits.Guilds] });
 
@@ -293,7 +293,7 @@ The package ships two engines:
 The fallback opens v1.1.0 JSON databases normally and **refuses v2 binary databases** with a clear error: migrate them first (`db.migrate('json')` with the native engine).
 
 ```js
-const { hasNativeEngine } = require('spectredb');
+const { hasNativeEngine } = require('@sexfy/spectre.db');
 console.log(hasNativeEngine); // true when the Rust addon is loaded
 ```
 
@@ -431,7 +431,7 @@ db.set('__proto__.polluted', 'value');   // rejected — prototype pollution gua
 ### 3. Handle Errors Properly
 
 ```js
-db.on('warn', (message) => console.warn('[spectredb]', message));
+db.on('warn', (message) => console.warn('[@sexfy/spectre.db]', message));
 
 db.on('change', ({ type, key }) => {
   console.log(type, key);

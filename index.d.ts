@@ -1,4 +1,4 @@
-declare module 'spectredb' {
+declare module '@sexfy/spectre.db' {
   export interface SpectreOptions {
     compress?: boolean;
     compression?: 'none' | 'gzip' | 'zstd';

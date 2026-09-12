@@ -1,5 +1,5 @@
 {
-  "name": "spectredb",
+  "name": "@sexfy/spectre.db",
   "version": "2.0.0",
   "description": "High-performance key-value storage in Rust for Node.js & Bun: binary v2 format (CRC32, WAL v3 + LSN, segmented incremental compaction), lazy cursors, secondary indexes, raw binary values, zstd compression, dual-engine with v1.1.0 JSON fallback.",
   "main": "index.js",

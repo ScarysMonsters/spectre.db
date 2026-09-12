@@ -1,7 +1,7 @@
 # spectre.db Storage Formats (v2)
 
 This document specifies every on-disk format produced by spectre.db v2
-(npm: `spectredb`) and its compatibility with spectre.db v1.1.0 JSON files.
+(npm: `@sexfy/spectre.db`) and its compatibility with spectre.db v1.1.0 JSON files.
 
 ## File layout
 

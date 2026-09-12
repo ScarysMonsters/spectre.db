@@ -11,7 +11,7 @@ async function main() {
   const dir = fs.mkdtempSync(path.join(root, 'smoke-'));
   const dbPath = path.join(dir, 'test.db');
 
-  console.log('spectredb', version, '— engine:', hasNativeEngine ? 'native' : 'fallback');
+  console.log('@sexfy/spectre.db', version, '— engine:', hasNativeEngine ? 'native' : 'fallback');
 
   const db = new Database(dbPath, { format: 'v2' });
   await db.ready;

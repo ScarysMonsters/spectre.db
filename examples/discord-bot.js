@@ -1,7 +1,7 @@
 'use strict';
 
 const { Client, GatewayIntentBits } = require('discord.js');
-const { Database } = require('spectredb');
+const { Database } = require('@sexfy/spectre.db');
 
 const client = new Client({
   intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent],

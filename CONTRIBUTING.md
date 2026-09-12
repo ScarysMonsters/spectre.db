@@ -43,7 +43,7 @@ To report a bug, open a [new issue](https://github.com/ScarysMonsters/spectre.db
 1. **Description** — what happened and what you expected to happen.
 2. **Reproduction steps** — a minimal code snippet that reproduces the problem.
 3. **Environment** — Node.js version (`node -v`), OS/arch, and whether the native
-   engine or the JS fallback is in use (`require('spectredb').hasNativeEngine`).
+   engine or the JS fallback is in use (`require('@sexfy/spectre.db').hasNativeEngine`).
 4. **Error output** — the full error message and stack trace if applicable.
 
 **Example issue title format:**
