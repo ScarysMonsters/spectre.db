@@ -120,8 +120,6 @@ jobs:
               npm publish "$d" --access public --provenance
             fi
           done
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
       - name: Publish root package
         run: |
           name=$(node -p "require('./package.json').name")
@@ -131,5 +129,3 @@ jobs:
           else
             npm publish --access public --provenance
           fi
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
