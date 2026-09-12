@@ -105,7 +105,7 @@ jobs:
         with:
           node-version: 24
           registry-url: 'https://registry.npmjs.org'
-      - name: Use latest npm (trusted publishing requires npm >= 11.5.1)
+      - name: Use latest npm
         run: npm install -g npm@latest
       - name: Check versions
         run: node scripts/check-versions.js
@@ -120,6 +120,8 @@ jobs:
               npm publish "$d" --access public --provenance
             fi
           done
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
       - name: Publish root package
         run: |
           name=$(node -p "require('./package.json').name")
@@ -129,3 +131,5 @@ jobs:
           else
             npm publish --access public --provenance
           fi
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
