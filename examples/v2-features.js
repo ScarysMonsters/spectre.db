@@ -1,6 +1,6 @@
 'use strict';
 
-const { Database, hasNativeEngine } = require('spectre-db');
+const { Database, hasNativeEngine } = require('spectredb');
 
 async function main() {
   console.log('native engine:', hasNativeEngine);

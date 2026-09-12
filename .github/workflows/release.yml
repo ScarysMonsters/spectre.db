@@ -112,11 +112,24 @@ jobs:
       - name: Publish platform packages
         run: |
           for d in npm/*/; do
-            npm publish "$d" --access public --provenance
+            name=$(node -p "require('./$d/package.json').name")
+            version=$(node -p "require('./$d/package.json').version")
+            if [ "$(npm view "$name" version 2>/dev/null)" = "$version" ]; then
+              echo "skip $name@$version (already published)"
+            else
+              npm publish "$d" --access public --provenance
+            fi
           done
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
       - name: Publish root package
-        run: npm publish --access public --provenance
+        run: |
+          name=$(node -p "require('./package.json').name")
+          version=$(node -p "require('./package.json').version")
+          if [ "$(npm view "$name" version 2>/dev/null)" = "$version" ]; then
+            echo "skip $name@$version (already published)"
+          else
+            npm publish --access public --provenance
+          fi
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

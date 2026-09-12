@@ -26,7 +26,7 @@
 ## Installation
 
 ```bash
-npm install spectre-db@latest
+npm install spectredb@latest
 ```
 
 **Required:** Node.js 18.0.0 or newer (Bun 1.0+ is supported).
@@ -40,7 +40,7 @@ package falls back to the frozen v1.1.0 JavaScript engine.
 ## Quick Start
 
 ```javascript
-const { Database } = require('spectre-db');
+const { Database } = require('spectredb');
 
 // Create a database (format: 'auto' → v2 binary for new files)
 const db = new Database('./data/mydb', {
@@ -591,7 +591,7 @@ await db.transaction((tx) => {
 ### 3. Handle warnings and events
 
 ```javascript
-db.on('warn', (message) => console.warn('[spectre-db]', message));
+db.on('warn', (message) => console.warn('[spectredb]', message));
 
 db.on('change', ({ type, key }) => {
   console.log(type, key);
@@ -623,7 +623,7 @@ const cache = db.table('cache');
 
 ```javascript
 const { Client, GatewayIntentBits } = require('discord.js');
-const { Database } = require('spectre-db');
+const { Database } = require('spectredb');
 
 const client = new Client({
   intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages],
@@ -671,7 +671,7 @@ client.login(process.env.TOKEN);
 
 ```javascript
 const express = require('express');
-const { Database } = require('spectre-db');
+const { Database } = require('spectredb');
 
 const app = express();
 const db = new Database('./data/backend', {

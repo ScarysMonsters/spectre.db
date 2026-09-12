@@ -1,6 +1,6 @@
 'use strict';
 
-const { Database } = require('spectre-db');
+const { Database } = require('spectredb');
 
 async function main() {
   const db = new Database('./data/mydb', {

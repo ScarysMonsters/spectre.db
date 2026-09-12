@@ -1,4 +1,4 @@
-# Changelog — spectre-db
+# Changelog — spectredb
 
 ## 2.0.0 (2026-09-12)
 

@@ -1,4 +1,4 @@
-declare module 'spectre-db' {
+declare module 'spectredb' {
   export interface SpectreOptions {
     compress?: boolean;
     compression?: 'none' | 'gzip' | 'zstd';
