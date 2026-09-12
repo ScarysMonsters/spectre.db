@@ -13,11 +13,11 @@ function fresh(name) {
 }
 
 function cleanup(dir) {
-  fs.rmSync(dir, { recursive: true, force: true });
+  fs.rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
 }
 
 afterAll(() => {
-  fs.rmSync(DATA, { recursive: true, force: true });
+  fs.rmSync(DATA, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
 });
 
 D('fallback engine (v1.1.0 API, async)', () => {

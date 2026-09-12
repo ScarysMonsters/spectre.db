@@ -57,6 +57,15 @@ function crashWorker(dbPath, point, mode) {
   });
 }
 
+function expectCrash(res) {
+  if (process.platform === 'win32') {
+
+    expect(res.status).not.toBe(0);
+  } else {
+    expectCrash(res);
+  }
+}
+
 function recover(dbPath, opts = {}) {
 
   const lockPath = dbPath + '.lock';
@@ -79,7 +88,7 @@ function pidAlive(pid) {
 }
 
 afterAll(() => {
-  fs.rmSync(DATA, { recursive: true, force: true });
+  fs.rmSync(DATA, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
 });
 
 D('fault injection: kill -9 at instrumented points', () => {
@@ -91,7 +100,7 @@ D('fault injection: kill -9 at instrumented points', () => {
     const res = crashWorker(dbPath, point + ':2', 'compact');
 
 
-    expect([null, 'SIGABRT', 134]).toContain(res.status === 0 ? null : (res.signal || res.status));
+    expectCrash(res);
     const db = recover(dbPath);
     try {
 
@@ -103,14 +112,14 @@ D('fault injection: kill -9 at instrumented points', () => {
       expect(st.recoveryCount).toBeGreaterThanOrEqual(0);
     } finally {
       db.close().catch(() => {});
-      setTimeout(() => fs.rmSync(dir, { recursive: true, force: true }), 200);
+      setTimeout(() => fs.rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }), 200);
     }
   });
 
   test.each(segPoints)('crash at %s: segmented layout recovers coherently', (point) => {
     const { dir, dbPath } = fresh(point);
     const res = crashWorker(dbPath, point, 'compact');
-    expect([null, 'SIGABRT', 134]).toContain(res.status === 0 ? null : (res.signal || res.status));
+    expectCrash(res);
     const db = recover(dbPath);
     try {
       expect(db.get('a')).toBe(1);
@@ -121,7 +130,7 @@ D('fault injection: kill -9 at instrumented points', () => {
       expect(db.count()).toBe(3);
     } finally {
       db.close().catch(() => {});
-      setTimeout(() => fs.rmSync(dir, { recursive: true, force: true }), 200);
+      setTimeout(() => fs.rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }), 200);
     }
   });
 
@@ -137,7 +146,7 @@ D('fault injection: kill -9 at instrumented points', () => {
       },
       timeout: 15000,
     });
-    expect([null, 'SIGABRT', 134]).toContain(res.status === 0 ? null : (res.signal || res.status));
+    expectCrash(res);
     const db = recover(dbPath, { durability: 'durable' });
     try {
       expect(db.get('a')).toBe(1);
@@ -146,7 +155,7 @@ D('fault injection: kill -9 at instrumented points', () => {
       expect(db.stats().durability).toBe('durable');
     } finally {
       db.close().catch(() => {});
-      setTimeout(() => fs.rmSync(dir, { recursive: true, force: true }), 200);
+      setTimeout(() => fs.rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }), 200);
     }
   });
 
@@ -165,7 +174,7 @@ D('fault injection: kill -9 at instrumented points', () => {
       expect(db2.count()).toBe(2);
     } finally {
       db2.close().catch(() => {});
-      setTimeout(() => fs.rmSync(dir, { recursive: true, force: true }), 200);
+      setTimeout(() => fs.rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }), 200);
     }
   });
 });

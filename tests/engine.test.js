@@ -13,7 +13,7 @@ function fresh(name) {
 }
 
 function cleanup(dir) {
-  fs.rmSync(dir, { recursive: true, force: true });
+  fs.rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
 }
 
 const NATIVE = hasNativeEngine;
@@ -21,7 +21,7 @@ const D = NATIVE ? describe : describe.skip;
 const T = NATIVE ? test : test.skip;
 
 afterAll(() => {
-  fs.rmSync(DATA, { recursive: true, force: true });
+  fs.rmSync(DATA, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
 });
 
 
@@ -243,8 +243,10 @@ describe('transactions (both engines)', () => {
 describe('persistence', () => {
   T('survives crash without compaction (WAL replay)', async () => {
     const { dir, dbPath } = fresh('crash');
+    let crashed;
     {
       const db = new Database(dbPath);
+      crashed = db;
       await db.ready;
       await db.set('a', 1);
       await db.set('b', { deep: true });
@@ -260,6 +262,7 @@ describe('persistence', () => {
     expect(db2.get('b')).toEqual({ deep: true });
     expect(db2.get('c')).toBe(3);
     await db2.close();
+    try { await crashed.close(); } catch (_) {}
     cleanup(dir);
   });
 
