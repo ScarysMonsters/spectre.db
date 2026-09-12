@@ -105,6 +105,8 @@ jobs:
         with:
           node-version: 20
           registry-url: 'https://registry.npmjs.org'
+      - name: Use latest npm (trusted publishing requires npm >= 11.5.1)
+        run: npm install -g npm@latest
       - name: Check versions
         run: node scripts/check-versions.js
       - name: Publish platform packages
