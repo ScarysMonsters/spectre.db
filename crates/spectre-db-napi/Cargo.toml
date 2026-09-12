@@ -13,3 +13,6 @@ spectre-db-core = { path = "../spectre-db-core" }
 napi = { version = "3", default-features = false, features = ["napi4"] }
 napi-derive = "3"
 serde_json = "1"
+
+[build-dependencies]
+napi-build = "2"

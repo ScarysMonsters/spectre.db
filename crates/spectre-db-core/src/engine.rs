@@ -662,7 +662,7 @@ impl Engine {
                 push_json_key(&mut out, key_bytes);
                 out.push(',');
 
-                let mut decrypted;
+                let decrypted;
                 let value: &[u8] = match &self.enc_key {
                     Some(key) if crypto::looks_encrypted(value) => {
                         decrypted = crypto::decrypt_value(value, key)?;
@@ -848,7 +848,7 @@ impl Engine {
         write_file_atomic(&tmp, &bytes, &path, None)?;
         self.crash_point("seg_written");
         if self.opts.durability == Durability::Durable {
-            if let Ok(mut f) = File::open(&path) {
+            if let Ok(f) = File::open(&path) {
                 let _ = f.sync_data();
             }
         }
@@ -1007,7 +1007,7 @@ impl Engine {
         let tmp = unique_tmp(&path);
         write_file_atomic(&tmp, &done.bytes, &path, None)?;
         if self.opts.durability == Durability::Durable {
-            if let Ok(mut f) = File::open(&path) {
+            if let Ok(f) = File::open(&path) {
                 let _ = f.sync_data();
             }
         }

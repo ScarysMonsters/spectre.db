@@ -506,7 +506,6 @@ pub fn split_object_fields(bytes: &[u8]) -> Option<Vec<(String, &[u8])>> {
                 i += 1;
             }
             Some(b'}') => {
-                i += 1;
                 return Some(out);
             }
             _ => return None,

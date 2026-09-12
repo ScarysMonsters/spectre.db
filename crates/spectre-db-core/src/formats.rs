@@ -612,12 +612,12 @@ pub fn decode_manifest(bytes: &[u8]) -> Result<Manifest> {
     }
     let mut m = Manifest { generation: u64::from_le_bytes(bytes[12..20].try_into().unwrap()), ..Default::default() };
     let mut off = 20usize;
-    let mut rd_u32 = |off: &mut usize| -> u32 {
+    let rd_u32 = |off: &mut usize| -> u32 {
         let v = u32::from_le_bytes(bytes[*off..*off + 4].try_into().unwrap());
         *off += 4;
         v
     };
-    let mut rd_u64 = |off: &mut usize| -> u64 {
+    let rd_u64 = |off: &mut usize| -> u64 {
         let v = u64::from_le_bytes(bytes[*off..*off + 8].try_into().unwrap());
         *off += 8;
         v
