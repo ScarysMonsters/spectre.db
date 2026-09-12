@@ -96,13 +96,14 @@ mod tests {
 
     #[test]
     fn derives_paths() {
-        let p = DbPaths::resolve(Path::new("/tmp/x/test.db")).unwrap();
-        assert_eq!(p.snapshot_path(), PathBuf::from("/tmp/x/test.snapshot"));
-        assert_eq!(p.wal_path(), PathBuf::from("/tmp/x/test.wal"));
-        assert_eq!(p.spdb_path(), PathBuf::from("/tmp/x/test.spdb"));
-        assert_eq!(p.spwal_path(), PathBuf::from("/tmp/x/test.spwal"));
-        assert_eq!(p.lock_path(), PathBuf::from("/tmp/x/test.lock"));
-        assert_eq!(p.backup_path(1, false), PathBuf::from("/tmp/x/test.snapshot.1.bak"));
-        assert_eq!(p.backup_path(2, true), PathBuf::from("/tmp/x/test.spdb.2.bak"));
+        let dir = std::env::temp_dir().join("spectre-pathnorm-test");
+        let p = DbPaths::resolve(&dir.join("test.db")).unwrap();
+        assert_eq!(p.snapshot_path(), dir.join("test.snapshot"));
+        assert_eq!(p.wal_path(), dir.join("test.wal"));
+        assert_eq!(p.spdb_path(), dir.join("test.spdb"));
+        assert_eq!(p.spwal_path(), dir.join("test.spwal"));
+        assert_eq!(p.lock_path(), dir.join("test.lock"));
+        assert_eq!(p.backup_path(1, false), dir.join("test.snapshot.1.bak"));
+        assert_eq!(p.backup_path(2, true), dir.join("test.spdb.2.bak"));
     }
 }
