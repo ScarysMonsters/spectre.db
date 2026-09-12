@@ -16,7 +16,7 @@ function fresh(name) {
 
 const WORKER = `
 
-const { Database } = require('${path.join(__dirname, '..')}');
+const { Database } = require(${JSON.stringify(path.join(__dirname, '..'))});
 
 const db = new Database(process.env.SPECTRE_DB_PATH, {
 
@@ -66,8 +66,8 @@ function expectCrash(res) {
 }
 
 function recover(dbPath, opts = {}) {
-
-  const lockPath = dbPath + '.lock';
+  const base = dbPath.replace(/\.(db|json|snapshot)$/i, '');
+  const lockPath = base + '.lock';
   try {
     const pid = parseInt(fs.readFileSync(lockPath, 'utf8').trim(), 10);
     if (Number.isFinite(pid) && !pidAlive(pid)) {
