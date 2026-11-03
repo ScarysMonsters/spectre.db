@@ -19,6 +19,7 @@ This directory contains the full project documentation.
 | [FORMATS.md](./FORMATS.md) | On-disk format specification (v2 binary, v1.1.0 JSON, WAL, segments, manifest, locks) |
 | [TROUBLESHOOTING.md](./TROUBLESHOOTING.md) | Error reference, common failures, diagnostics, FAQ |
 | [RELEASING.md](./RELEASING.md) | Versioning, build, CI workflows, prebuilt binaries, npm publishing |
+| [SPEC-2.1.md](./SPEC-2.1.md) | Engineering specification for 2.1 (benchmarks, scale, reliability, concurrency, adoption, release) |
 
 Other entry points at the repository root:
 
