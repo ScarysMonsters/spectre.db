@@ -85,7 +85,7 @@
         "diskBytes": 22494526
       },
       "count": {
-        "opsPerSec": 2437641.474617083,
+        "opsPerSec": 24.37641474617083,
         "runs": [
           2663374.735493596,
           1824184.3798010251,
@@ -112,6 +112,16 @@
           244498.4188287254
         ],
         "medianMs": 311.0251,
+        "diskBytes": 22494526
+      },
+      "countEntries": {
+        "opsPerSec": 2437641.474617083,
+        "runs": [
+          2663374.735493596,
+          1824184.3798010251,
+          2437641.474617083
+        ],
+        "medianMs": 410.2326,
         "diskBytes": 22494526
       }
     },
@@ -167,7 +177,7 @@
         "diskBytes": 22147072
       },
       "count": {
-        "opsPerSec": 12324195.353285383,
+        "opsPerSec": 123.24195353285383,
         "runs": [
           12324195.353285383,
           12346852.725506006,
@@ -194,6 +204,16 @@
           155182.8752593494
         ],
         "medianMs": 425.908,
+        "diskBytes": 22147072
+      },
+      "countEntries": {
+        "opsPerSec": 12324195.353285383,
+        "runs": [
+          12324195.353285383,
+          12346852.725506006,
+          7666930.15349961
+        ],
+        "medianMs": 81.1412,
         "diskBytes": 22147072
       }
     },
@@ -249,7 +269,7 @@
         "diskBytes": 37494720
       },
       "count": {
-        "opsPerSec": 11262948.166786242,
+        "opsPerSec": 112.62948166786242,
         "runs": [
           14466546.112115733,
           11225486.344195863,
@@ -277,6 +297,16 @@
         ],
         "medianMs": 617.7872,
         "diskBytes": 37494720
+      },
+      "countEntries": {
+        "opsPerSec": 11262948.166786242,
+        "runs": [
+          14466546.112115733,
+          11225486.344195863,
+          11262948.166786242
+        ],
+        "medianMs": 88.7867,
+        "diskBytes": 37494720
       }
     }
   },
@@ -299,7 +329,7 @@
         },
         "count": {
           "ms": 375.4635,
-          "ops": 1000000
+          "ops": 10
         },
         "mixed": {
           "ms": 874.8169,
@@ -315,7 +345,11 @@
         },
         "diskBytesBatched": 22494526,
         "run": 0,
-        "elapsedMs": 4870
+        "elapsedMs": 4870,
+        "countEntries": {
+          "ms": 375.4635,
+          "ops": 1000000
+        }
       },
       {
         "verified": true,
@@ -334,7 +368,7 @@
         },
         "count": {
           "ms": 548.1902,
-          "ops": 1000000
+          "ops": 10
         },
         "mixed": {
           "ms": 1392.155,
@@ -350,7 +384,11 @@
         },
         "diskBytesBatched": 22494526,
         "run": 1,
-        "elapsedMs": 7029
+        "elapsedMs": 7029,
+        "countEntries": {
+          "ms": 548.1902,
+          "ops": 1000000
+        }
       },
       {
         "verified": true,
@@ -369,7 +407,7 @@
         },
         "count": {
           "ms": 410.2326,
-          "ops": 1000000
+          "ops": 10
         },
         "mixed": {
           "ms": 1157.8385,
@@ -385,7 +423,11 @@
         },
         "diskBytesBatched": 22494526,
         "run": 2,
-        "elapsedMs": 7219
+        "elapsedMs": 7219,
+        "countEntries": {
+          "ms": 410.2326,
+          "ops": 1000000
+        }
       }
     ],
     "sqlite": [
@@ -410,7 +452,7 @@
         },
         "count": {
           "ms": 81.1412,
-          "ops": 1000000
+          "ops": 10
         },
         "mixed": {
           "ms": 3363.5019,
@@ -426,7 +468,11 @@
         },
         "diskBytesBatched": 22147072,
         "run": 0,
-        "elapsedMs": 14888
+        "elapsedMs": 14888,
+        "countEntries": {
+          "ms": 81.1412,
+          "ops": 1000000
+        }
       },
       {
         "verified": true,
@@ -449,7 +495,7 @@
         },
         "count": {
           "ms": 80.9923,
-          "ops": 1000000
+          "ops": 10
         },
         "mixed": {
           "ms": 3361.871,
@@ -465,7 +511,11 @@
         },
         "diskBytesBatched": 22147072,
         "run": 1,
-        "elapsedMs": 15005
+        "elapsedMs": 15005,
+        "countEntries": {
+          "ms": 80.9923,
+          "ops": 1000000
+        }
       },
       {
         "verified": true,
@@ -488,7 +538,7 @@
         },
         "count": {
           "ms": 130.4303,
-          "ops": 1000000
+          "ops": 10
         },
         "mixed": {
           "ms": 5647.672,
@@ -504,7 +554,11 @@
         },
         "diskBytesBatched": 22147072,
         "run": 2,
-        "elapsedMs": 22486
+        "elapsedMs": 22486,
+        "countEntries": {
+          "ms": 130.4303,
+          "ops": 1000000
+        }
       }
     ],
     "lmdb": [
@@ -529,7 +583,7 @@
         },
         "count": {
           "ms": 69.125,
-          "ops": 1000000
+          "ops": 10
         },
         "mixed": {
           "ms": 6807.5464,
@@ -545,7 +599,11 @@
         },
         "diskBytesBatched": 37494720,
         "run": 0,
-        "elapsedMs": 27726
+        "elapsedMs": 27726,
+        "countEntries": {
+          "ms": 69.125,
+          "ops": 1000000
+        }
       },
       {
         "verified": true,
@@ -568,7 +626,7 @@
         },
         "count": {
           "ms": 89.083,
-          "ops": 1000000
+          "ops": 10
         },
         "mixed": {
           "ms": 8645.8754,
@@ -584,7 +642,11 @@
         },
         "diskBytesBatched": 37494720,
         "run": 1,
-        "elapsedMs": 30799
+        "elapsedMs": 30799,
+        "countEntries": {
+          "ms": 89.083,
+          "ops": 1000000
+        }
       },
       {
         "verified": true,
@@ -607,7 +669,7 @@
         },
         "count": {
           "ms": 88.7867,
-          "ops": 1000000
+          "ops": 10
         },
         "mixed": {
           "ms": 9154.0846,
@@ -623,7 +685,11 @@
         },
         "diskBytesBatched": 37494720,
         "run": 2,
-        "elapsedMs": 33891
+        "elapsedMs": 33891,
+        "countEntries": {
+          "ms": 88.7867,
+          "ops": 1000000
+        }
       }
     ]
   },

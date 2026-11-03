@@ -330,8 +330,11 @@ async function runMainWorkloads(engine, db, workload, records) {
 
   start = hr();
   let counted = 0;
-  for (let round = 0; round < 10; round++) counted = db.count(prefix);
-  records.count = { ms: elapsedMs(start), ops: N * 10 };
+  const countRounds = 10;
+  for (let round = 0; round < countRounds; round++) counted = db.count(prefix);
+  const countMs = elapsedMs(start);
+  records.count = { ms: countMs, ops: countRounds };
+  records.countEntries = { ms: countMs, ops: N * countRounds };
   if (counted !== N) records.verified = false;
 
   start = hr();
@@ -416,7 +419,8 @@ const WORKLOADS = [
   ['read', 'read (random)'],
   ['readMany', 'read (batch of ' + fmt(BATCH_SIZE) + ')'],
   ['scan', 'scan (full prefix)'],
-  ['count', 'count (full prefix)'],
+  ['count', 'count (queries)'],
+  ['countEntries', 'count (entries scanned)'],
   ['mixed', 'mixed 80/20'],
   ['delete', 'delete (batched)'],
 ];

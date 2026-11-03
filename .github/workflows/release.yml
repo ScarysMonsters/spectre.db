@@ -101,15 +101,22 @@ jobs:
             cp "$f" "npm/$pkg/"
           done
           ls npm/*/
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: 24
           registry-url: 'https://registry.npmjs.org'
+          package-manager-cache: false
       - name: Use latest npm
         run: npm install -g npm@latest
+      - name: Clear setup-node auth placeholder
+        run: |
+          npm config delete "//registry.npmjs.org/:_authToken" || true
+          echo "NODE_AUTH_TOKEN=" >> "$GITHUB_ENV"
       - name: Check versions
         run: node scripts/check-versions.js
       - name: Publish platform packages
+        env:
+          NODE_AUTH_TOKEN: ''
         run: |
           for d in npm/*/; do
             name=$(node -p "require('./$d/package.json').name")
@@ -121,6 +128,8 @@ jobs:
             fi
           done
       - name: Publish root package
+        env:
+          NODE_AUTH_TOKEN: ''
         run: |
           name=$(node -p "require('./package.json').name")
           version=$(node -p "require('./package.json').version")

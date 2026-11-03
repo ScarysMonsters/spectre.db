@@ -84,7 +84,7 @@
         "diskBytes": 4463406
       },
       "count": {
-        "opsPerSec": 43995901.36619284,
+        "opsPerSec": 2199.795068309642,
         "runs": [
           54249057.42262728,
           33742745.3097584
@@ -108,6 +108,15 @@
           279669.43073287373
         ],
         "medianMs": 65.85805,
+        "diskBytes": 4463406
+      },
+      "countEntries": {
+        "opsPerSec": 43995901.36619284,
+        "runs": [
+          54249057.42262728,
+          33742745.3097584
+        ],
+        "medianMs": 4.8069500000000005,
         "diskBytes": 4463406
       }
     },
@@ -158,7 +167,7 @@
         "diskBytes": 4456448
       },
       "count": {
-        "opsPerSec": 20360482.69663313,
+        "opsPerSec": 1018.0241348316565,
         "runs": [
           19094901.661256444,
           21626063.732009817
@@ -182,6 +191,15 @@
           222123.00727897097
         ],
         "medianMs": 84.49510000000001,
+        "diskBytes": 4456448
+      },
+      "countEntries": {
+        "opsPerSec": 20360482.69663313,
+        "runs": [
+          19094901.661256444,
+          21626063.732009817
+        ],
+        "medianMs": 9.86105,
         "diskBytes": 4456448
       }
     },
@@ -232,7 +250,7 @@
         "diskBytes": 7610304
       },
       "count": {
-        "opsPerSec": 14038456.136671513,
+        "opsPerSec": 701.9228068335757,
         "runs": [
           14602910.360034754,
           13474001.913308272
@@ -256,6 +274,15 @@
           77405.64155537348
         ],
         "medianMs": 213.5626,
+        "diskBytes": 7610304
+      },
+      "countEntries": {
+        "opsPerSec": 14038456.136671513,
+        "runs": [
+          14602910.360034754,
+          13474001.913308272
+        ],
+        "medianMs": 14.26965,
         "diskBytes": 7610304
       }
     }
@@ -283,7 +310,7 @@
         },
         "count": {
           "ms": 3.6867,
-          "ops": 200000
+          "ops": 10
         },
         "mixed": {
           "ms": 4677.3359,
@@ -299,7 +326,11 @@
         },
         "diskBytesBatched": 4463406,
         "run": 0,
-        "elapsedMs": 16711
+        "elapsedMs": 16711,
+        "countEntries": {
+          "ms": 3.6867,
+          "ops": 200000
+        }
       },
       {
         "verified": true,
@@ -322,7 +353,7 @@
         },
         "count": {
           "ms": 5.9272,
-          "ops": 200000
+          "ops": 10
         },
         "mixed": {
           "ms": 4945.5363,
@@ -338,7 +369,11 @@
         },
         "diskBytesBatched": 4463406,
         "run": 1,
-        "elapsedMs": 17376
+        "elapsedMs": 17376,
+        "countEntries": {
+          "ms": 5.9272,
+          "ops": 200000
+        }
       }
     ],
     "sqlite": [
@@ -363,7 +398,7 @@
         },
         "count": {
           "ms": 10.474,
-          "ops": 200000
+          "ops": 10
         },
         "mixed": {
           "ms": 5154.1342,
@@ -379,7 +414,11 @@
         },
         "diskBytesBatched": 4456448,
         "run": 0,
-        "elapsedMs": 18543
+        "elapsedMs": 18543,
+        "countEntries": {
+          "ms": 10.474,
+          "ops": 200000
+        }
       },
       {
         "verified": true,
@@ -402,7 +441,7 @@
         },
         "count": {
           "ms": 9.2481,
-          "ops": 200000
+          "ops": 10
         },
         "mixed": {
           "ms": 5028.2902,
@@ -418,7 +457,11 @@
         },
         "diskBytesBatched": 4456448,
         "run": 1,
-        "elapsedMs": 18441
+        "elapsedMs": 18441,
+        "countEntries": {
+          "ms": 9.2481,
+          "ops": 200000
+        }
       }
     ],
     "lmdb": [
@@ -443,7 +486,7 @@
         },
         "count": {
           "ms": 13.6959,
-          "ops": 200000
+          "ops": 10
         },
         "mixed": {
           "ms": 1223.9509,
@@ -459,7 +502,11 @@
         },
         "diskBytesBatched": 7610304,
         "run": 0,
-        "elapsedMs": 5163
+        "elapsedMs": 5163,
+        "countEntries": {
+          "ms": 13.6959,
+          "ops": 200000
+        }
       },
       {
         "verified": true,
@@ -482,7 +529,7 @@
         },
         "count": {
           "ms": 14.8434,
-          "ops": 200000
+          "ops": 10
         },
         "mixed": {
           "ms": 1899.889,
@@ -498,7 +545,11 @@
         },
         "diskBytesBatched": 7610304,
         "run": 1,
-        "elapsedMs": 6932
+        "elapsedMs": 6932,
+        "countEntries": {
+          "ms": 14.8434,
+          "ops": 200000
+        }
       }
     ]
   },

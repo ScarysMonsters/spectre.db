@@ -8,7 +8,7 @@ Performance release. No on-disk format change and no API break: v1.1.0 (JSON) an
 - **Point reads**: added an O(1) hash index alongside the ordered B-tree; `get()` now uses a zero-copy path and a single lookup. `db.get` improved from 268k to 641k ops/s in the benchmark (+2.4x), ahead of LMDB.
 - **Key validation**: ASCII fast path without Unicode normalization or allocations on hot read paths.
 - **Scan**: direct JSON page builder (no row clones, no per-key `serde_json` allocation) plus `scanSync()`; `scan()` no longer uses the O(n²) `Array.shift()`. Scan improved from 577k to 1.40M rows/s (+2.4x).
-- **Count**: `count()` no longer materializes `all()`; improved from 2.4M to 27.6M ops/s.
+- **Count**: `count()` no longer materializes `all()`; improved from 2.4M to 27.6M entries/s (about 276 full-prefix count queries/s at 100k keys).
 - **Batch writes**: `RawValue` batch parsing and the native `setManyPairs` path; batch ingestion is 2.8x faster than LMDB.
 - **N-API**: values are handed to V8 directly from the store buffer, without an intermediate Rust `String`.
 
