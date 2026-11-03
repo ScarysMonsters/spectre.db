@@ -80,6 +80,45 @@
 - [x] **TypeScript types** — first-class `index.d.ts`
 - [x] **Prebuilt binaries** — Linux (glibc/musl), macOS (x64/arm64), Windows (x64); no compilation on install
 
+### New in v2.0.1
+
+- [x] **Bulk APIs** — `getMany()`, `setMany()`, `scanSync()`
+- [x] **Faster hot paths** — hash-indexed point reads, zero-copy values, direct JSON scan pages
+- [x] **Benchmark suite** — reproducible SQLite / LMDB comparison in [`benchmarks/`](benchmarks/)
+
+---
+
+## Benchmarks
+
+Median of 3 runs on Windows, Node.js 26.4.0, 8 logical cores, 100,000 keys, ~185-byte JSON values. SQLite uses WAL + `synchronous=NORMAL`; LMDB uses its default sync mode; spectre.db runs the local 2.0.1 build with `autoSave: 0` (no background compaction). Higher is better (ops/s).
+
+| Workload | spectre.db | SQLite | LMDB | Winner |
+|---|---:|---:|---:|---|
+| write (single op) | **117 176** | 20 060 | 5 298 | spectre.db |
+| write (batch of 1,000) | **244 365** | 212 357 | 86 803 | spectre.db |
+| read (random) | **640 771** | 136 394 | 557 396 | spectre.db |
+| read (batch of 1,000) | **1 070 848** | 155 128 | 314 816 | spectre.db |
+| scan (full prefix) | 1 404 492 | 910 700 | **1 551 109** | LMDB |
+| count (full prefix) | **27 648 827** | 11 836 197 | 13 662 266 | spectre.db |
+| mixed 80/20 | **283 742** | 54 951 | 24 626 | spectre.db |
+| delete (batched) | **414 003** | 231 450 | 138 813 | spectre.db |
+| on-disk size | 21.5 MB | 21.1 MB | 35.8 MB | — |
+
+spectre.db wins 7/8 workloads against LMDB and 7/8 overall. The remaining gap is full scans (1.40M vs 1.55M rows/s, ~10%); scan results flip with run-to-run variance and were at parity on previous runs. In `durability: "durable"` mode, LMDB keeps the single-write and mixed-write lead (per-op fsync vs. LMDB's asynchronous flush), while spectre.db wins bulk reads, count, delete, batch ingestion and stays within ~10% on scans.
+
+Compared to 2.0.0 on the same harness: `get` 268k → 641k ops/s (+2.4x), `scan` 577k → 1.40M rows/s (+2.4x), `count` 2.4M → 27.6M ops/s (+11x).
+
+Raw results: [`benchmarks/results/`](benchmarks/results/). Reproduce:
+
+```sh
+cd benchmarks
+npm install
+npm run bench                          # published @sexfy/spectre.db baseline
+SPECTRE_BENCH_LOCAL=1 node bench.js    # local build (2.0.1+)
+```
+
+On Windows PowerShell: `$env:SPECTRE_BENCH_LOCAL=1; node bench.js`.
+
 ---
 
 ## Installation
@@ -188,6 +227,8 @@ new Database(path, options?)
 
 ```js
 db.get('users.1.name')              // → value or null
+db.getMany(['users.1', 'users.2'])  // → values in order (batch lookup)
+db.setMany([['users.1', 'Alice']])  // → bulk write
 db.set('users.1.name', 'Alice')     // → value
 db.delete('users.1.name')           // → true / false
 db.has('users.1.name')              // → true / false

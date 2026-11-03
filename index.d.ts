@@ -79,6 +79,8 @@ declare module '@sexfy/spectre.db' {
     get(key: string): any;
     set(key: string, value: any): any;
     has(key: string): boolean;
+    getMany(keys: string[]): any[];
+    setMany(entries: Array<[string, any]>): any[];
     delete(key: string): boolean;
     add(key: string, n: number): number;
     sub(key: string, n: number): number;
@@ -94,6 +96,7 @@ declare module '@sexfy/spectre.db' {
       pagination: { page: number; limit: number; total: number; pages: number; hasNext: boolean; hasPrev: boolean };
     };
     scan(opts?: { prefix?: string; after?: string; pageSize?: number; limit?: number }): AsyncIterableIterator<Entry>;
+    scanSync(opts?: { prefix?: string; after?: string; pageSize?: number; limit?: number }): IterableIterator<Entry>;
     iterate(opts?: { prefix?: string; after?: string; pageSize?: number; limit?: number }): AsyncIterableIterator<Entry>;
     cursor(prefix?: string, opts?: { after?: string; limit?: number }): { rows: Entry[]; cursor: string | null; done: boolean };
     setRaw(key: string, data: Uint8Array | Buffer): Uint8Array | Buffer;

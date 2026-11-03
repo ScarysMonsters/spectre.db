@@ -1,5 +1,6 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::ops::Bound;
+use std::sync::Arc;
 
 use serde_json::Value;
 
@@ -12,7 +13,8 @@ pub fn is_raw_key(k: &[u8]) -> bool {
 
 #[derive(Debug, Default)]
 pub struct Store {
-    map: BTreeMap<Vec<u8>, Box<[u8]>>,
+    map: BTreeMap<Vec<u8>, Arc<[u8]>>,
+    hash: HashMap<Vec<u8>, Arc<[u8]>>,
 }
 
 fn descendants_range(key: &[u8]) -> (Bound<Vec<u8>>, Bound<Vec<u8>>) {
@@ -60,17 +62,31 @@ impl Store {
 
 
     pub fn raw_insert(&mut self, key: &[u8], value: Box<[u8]>) {
-        self.map.insert(key.to_vec(), value);
+        let value: Arc<[u8]> = Arc::from(value.into_vec());
+        self.map.insert(key.to_vec(), Arc::clone(&value));
+        self.hash.insert(key.to_vec(), value);
+    }
+
+    fn insert_entry(&mut self, key: Vec<u8>, value: Box<[u8]>) {
+        let value: Arc<[u8]> = Arc::from(value.into_vec());
+        self.map.insert(key.clone(), Arc::clone(&value));
+        self.hash.insert(key, value);
+    }
+
+    fn remove_entry(&mut self, key: &[u8]) -> bool {
+        let removed = self.map.remove(key).is_some();
+        self.hash.remove(key);
+        removed
     }
 
     pub fn contains(&self, key: &[u8]) -> bool {
-        self.map.contains_key(key)
+        self.hash.contains_key(key)
     }
 
 
     fn ancestor_leaf(&self, key: &[u8]) -> Option<usize> {
         for (i, b) in key.iter().enumerate() {
-            if *b == b'.' && self.map.contains_key(&key[..i]) {
+            if *b == b'.' && self.hash.contains_key(&key[..i]) {
                 return Some(i);
             }
         }
@@ -79,11 +95,11 @@ impl Store {
 
 
     fn remove_with_descendants(&mut self, key: &[u8]) -> bool {
-        let mut removed = self.map.remove(key).is_some();
+        let mut removed = self.remove_entry(key);
         let (s, e) = descendants_range(key);
         let doomed: Vec<Vec<u8>> = self.map.range((s, e)).map(|(k, _)| k.clone()).collect();
         for d in &doomed {
-            self.map.remove(d);
+            self.remove_entry(d);
             removed = true;
         }
         removed
@@ -98,10 +114,10 @@ impl Store {
                 return;
             }
 
-            self.map.remove(&key[..alen]);
+            self.remove_entry(&key[..alen]);
         }
         self.remove_with_descendants(key);
-        self.map.insert(key.to_vec(), value);
+        self.insert_entry(key.to_vec(), value);
     }
 
 
@@ -136,16 +152,20 @@ impl Store {
         if let Ok(bytes) = serde_json::to_vec(&root) {
 
             self.remove_with_descendants(&key[..alen]);
-            self.map.insert(key[..alen].to_vec(), bytes.into_boxed_slice());
+            self.insert_entry(key[..alen].to_vec(), bytes.into_boxed_slice());
         }
     }
 
 
+    #[inline]
+    pub fn get_ref(&self, key: &[u8]) -> Option<&[u8]> {
+        self.hash.get(key).map(|value| &value[..])
+    }
+
     pub fn get(&mut self, key: &[u8]) -> Option<Vec<u8>> {
-        if let Some(v) = self.map.get(key) {
+        if let Some(v) = self.hash.get(key) {
             return Some(v.to_vec());
         }
-
         if let Some(alen) = self.ancestor_leaf(key) {
             let ancestor = self.map.get(&key[..alen])?;
             if is_envelope(ancestor) {
@@ -169,7 +189,7 @@ impl Store {
         let value = self.resolve_node(key)?;
         let bytes = serde_json::to_vec(&value).ok()?;
         self.remove_with_descendants(key);
-        self.map.insert(key.to_vec(), bytes.clone().into_boxed_slice());
+        self.insert_entry(key.to_vec(), bytes.clone().into_boxed_slice());
         Some(bytes)
     }
 
@@ -236,7 +256,7 @@ impl Store {
                 }
             }
             if let Ok(bytes) = serde_json::to_vec(&root) {
-                self.map.insert(key[..alen].to_vec(), bytes.into_boxed_slice());
+                self.insert_entry(key[..alen].to_vec(), bytes.into_boxed_slice());
                 return true;
             }
             return false;
@@ -246,11 +266,27 @@ impl Store {
 
     pub fn clear(&mut self) {
         self.map.clear();
+        self.hash.clear();
     }
 
 
     pub fn count(&self, prefix: Option<&[u8]>) -> usize {
-        self.all(prefix).len()
+        let pfx: &[u8] = prefix.unwrap_or(b"");
+        let mut count = 0;
+        for (k, v) in &self.map {
+            if is_raw_key(k) {
+                continue;
+            }
+            let leaf_is_ancestor = !k.starts_with(pfx) && pfx.starts_with(k.as_slice());
+            if !under_prefix(k, pfx) && !leaf_is_ancestor {
+                continue;
+            }
+            if v.first() == Some(&b'{') && !is_envelope(v) {
+                return self.all(prefix).len();
+            }
+            count += 1;
+        }
+        count
     }
 
 
@@ -263,21 +299,23 @@ impl Store {
         let mut k = Vec::with_capacity(key.len() + 1);
         k.push(RAW_PREFIX);
         k.extend_from_slice(key);
-        self.map.insert(k, value);
+        let value: Arc<[u8]> = Arc::from(value.into_vec());
+        self.map.insert(k.clone(), Arc::clone(&value));
+        self.hash.insert(k, value);
     }
 
     pub fn get_raw(&self, key: &[u8]) -> Option<Vec<u8>> {
         let mut k = Vec::with_capacity(key.len() + 1);
         k.push(RAW_PREFIX);
         k.extend_from_slice(key);
-        self.map.get(&k).map(|v| v.to_vec())
+        self.hash.get(&k).map(|v| v.to_vec())
     }
 
     pub fn delete_raw(&mut self, key: &[u8]) -> bool {
         let mut k = Vec::with_capacity(key.len() + 1);
         k.push(RAW_PREFIX);
         k.extend_from_slice(key);
-        self.map.remove(&k).is_some()
+        self.remove_entry(&k)
     }
 
 
@@ -297,6 +335,35 @@ impl Store {
             }
             rows.push((k.clone(), v.to_vec()));
             cursor = k.clone();
+        }
+        if !hit_limit {
+            cursor.clear();
+        }
+        (rows, cursor)
+    }
+
+    pub fn page_ref<'a>(
+        &'a self,
+        prefix: Option<&[u8]>,
+        after: &[u8],
+        limit: usize,
+    ) -> (Vec<(&'a [u8], &'a [u8])>, Vec<u8>) {
+        let pfx: &[u8] = prefix.unwrap_or(b"");
+        let mut rows = Vec::with_capacity(limit.min(1024));
+        let mut cursor: Vec<u8> = Vec::new();
+        let start = Bound::Excluded(after.to_vec());
+        let mut hit_limit = false;
+        for (k, v) in self.map.range((start, Bound::Unbounded)) {
+            if is_raw_key(k) || !under_prefix(k, pfx) {
+                continue;
+            }
+            if rows.len() >= limit {
+                hit_limit = true;
+                break;
+            }
+            rows.push((&k[..], &v[..]));
+            cursor.clear();
+            cursor.extend_from_slice(k);
         }
         if !hit_limit {
             cursor.clear();
@@ -452,6 +519,15 @@ mod tests {
         assert_eq!(keys, vec![&b"a"[..], &b"b"[..], &b"c"[..]]);
         assert_eq!(s.count(Some(b"a")), 1);
         assert_eq!(s.count(None), 3);
+    }
+
+    #[test]
+    fn count_matches_all_for_object_values() {
+        let mut s = Store::new();
+        s.set(b"a", j("1"));
+        s.set(b"u", j(r#"{"name":"x","n":2}"#));
+        assert_eq!(s.count(None), s.all(None).len());
+        assert_eq!(s.count(Some(b"u.")), s.all(Some(b"u.")).len());
     }
 
     #[test]

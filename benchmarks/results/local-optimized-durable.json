@@ -1,0 +1,507 @@
+{
+  "generatedAt": "2026-11-03T16:05:19.679Z",
+  "environment": {
+    "node": "v26.4.0",
+    "platform": "win32",
+    "arch": "x64",
+    "cpus": 8,
+    "cpuModel": "Intel(R) Core(TM) i5-10210U CPU @ 1.60GHz",
+    "totalMemory": 17018445824,
+    "spectre": "2.0.1",
+    "spectreNative": true,
+    "spectrePackage": "..",
+    "sqlite": "3.53.2",
+    "lmdb": "3.5.9 (LMDB LMDB 0.9.90: (May 1, 2017))"
+  },
+  "config": {
+    "n": 20000,
+    "reads": 100000,
+    "mixed": 40000,
+    "batchSize": 1000,
+    "runs": 2,
+    "valueBytes": 183.7225,
+    "durable": true,
+    "sqlitePragmas": {
+      "journal_mode": "WAL",
+      "synchronous": "FULL",
+      "temp_store": "MEMORY"
+    },
+    "spectreOptions": {
+      "autoSave": 0,
+      "backup": false,
+      "cache": true,
+      "durability": "durable"
+    },
+    "lmdbOptions": {
+      "compression": false
+    }
+  },
+  "summary": {
+    "spectre": {
+      "write": {
+        "opsPerSec": 1718.8272112261022,
+        "runs": [
+          1742.4116990400225,
+          1695.242723412182
+        ],
+        "medianMs": 11638.032050000002,
+        "diskBytes": 4463406
+      },
+      "writeBatched": {
+        "opsPerSec": 170463.2946770182,
+        "runs": [
+          179378.31065094596,
+          161548.27870309041
+        ],
+        "medianMs": 117.6491,
+        "diskBytes": 4463406
+      },
+      "read": {
+        "opsPerSec": 515589.44188430894,
+        "runs": [
+          559615.5664904437,
+          471563.3172781743
+        ],
+        "medianMs": 195.37734999999998,
+        "diskBytes": 4463406
+      },
+      "readMany": {
+        "opsPerSec": 1097163.142521532,
+        "runs": [
+          1189492.027429686,
+          1004834.257613378
+        ],
+        "medianMs": 91.7942,
+        "diskBytes": 4463406
+      },
+      "scan": {
+        "opsPerSec": 957404.9105542037,
+        "runs": [
+          1257347.6251846731,
+          657462.1959237343
+        ],
+        "medianMs": 23.16325,
+        "diskBytes": 4463406
+      },
+      "count": {
+        "opsPerSec": 43995901.36619284,
+        "runs": [
+          54249057.42262728,
+          33742745.3097584
+        ],
+        "medianMs": 4.8069500000000005,
+        "diskBytes": 4463406
+      },
+      "mixed": {
+        "opsPerSec": 8319.989154396777,
+        "runs": [
+          8551.876721105276,
+          8088.101587688277
+        ],
+        "medianMs": 4811.4361,
+        "diskBytes": 4463406
+      },
+      "delete": {
+        "opsPerSec": 305939.1186280629,
+        "runs": [
+          332208.8065232521,
+          279669.43073287373
+        ],
+        "medianMs": 65.85805,
+        "diskBytes": 4463406
+      }
+    },
+    "sqlite": {
+      "write": {
+        "opsPerSec": 1666.758623387121,
+        "runs": [
+          1665.4407357410878,
+          1668.076511033154
+        ],
+        "medianMs": 11999.34545,
+        "diskBytes": 4456448
+      },
+      "writeBatched": {
+        "opsPerSec": 255640.37314960462,
+        "runs": [
+          273811.6914854147,
+          237469.05481379456
+        ],
+        "medianMs": 78.63220000000001,
+        "diskBytes": 4456448
+      },
+      "read": {
+        "opsPerSec": 186471.3892707149,
+        "runs": [
+          186462.59206124325,
+          186480.1864801865
+        ],
+        "medianMs": 536.2753,
+        "diskBytes": 4456448
+      },
+      "readMany": {
+        "opsPerSec": 185927.99949943207,
+        "runs": [
+          188367.97608781562,
+          183488.02291104852
+        ],
+        "medianMs": 537.93525,
+        "diskBytes": 4456448
+      },
+      "scan": {
+        "opsPerSec": 988891.2193097282,
+        "runs": [
+          983163.3280078652,
+          994619.1106115913
+        ],
+        "medianMs": 20.22535,
+        "diskBytes": 4456448
+      },
+      "count": {
+        "opsPerSec": 20360482.69663313,
+        "runs": [
+          19094901.661256444,
+          21626063.732009817
+        ],
+        "medianMs": 9.86105,
+        "diskBytes": 4456448
+      },
+      "mixed": {
+        "opsPerSec": 7857.875315426878,
+        "runs": [
+          7760.760284433416,
+          7954.990346420339
+        ],
+        "medianMs": 5091.2122,
+        "diskBytes": 4456448
+      },
+      "delete": {
+        "opsPerSec": 237723.94822466598,
+        "runs": [
+          253324.88917036098,
+          222123.00727897097
+        ],
+        "medianMs": 84.49510000000001,
+        "diskBytes": 4456448
+      }
+    },
+    "lmdb": {
+      "write": {
+        "opsPerSec": 5913.799064962692,
+        "runs": [
+          6606.920068258733,
+          5220.678061666649
+        ],
+        "medianMs": 3429.02455,
+        "diskBytes": 7610304
+      },
+      "writeBatched": {
+        "opsPerSec": 73112.12952642943,
+        "runs": [
+          83702.18094402668,
+          62522.07810883218
+        ],
+        "medianMs": 279.4147,
+        "diskBytes": 7610304
+      },
+      "read": {
+        "opsPerSec": 618854.8145770018,
+        "runs": [
+          738410.6449278573,
+          499298.9842261465
+        ],
+        "medianMs": 167.8534,
+        "diskBytes": 7610304
+      },
+      "readMany": {
+        "opsPerSec": 368197.737199163,
+        "runs": [
+          392721.92028451915,
+          343673.55411380687
+        ],
+        "medianMs": 272.80345,
+        "diskBytes": 7610304
+      },
+      "scan": {
+        "opsPerSec": 1076865.6521367244,
+        "runs": [
+          1124119.6737804709,
+          1029611.630492978
+        ],
+        "medianMs": 18.608249999999998,
+        "diskBytes": 7610304
+      },
+      "count": {
+        "opsPerSec": 14038456.136671513,
+        "runs": [
+          14602910.360034754,
+          13474001.913308272
+        ],
+        "medianMs": 14.26965,
+        "diskBytes": 7610304
+      },
+      "mixed": {
+        "opsPerSec": 26867.45555490192,
+        "runs": [
+          32681.049542101726,
+          21053.861567702115
+        ],
+        "medianMs": 1561.91995,
+        "diskBytes": 7610304
+      },
+      "delete": {
+        "opsPerSec": 97963.4496159236,
+        "runs": [
+          118521.2576764737,
+          77405.64155537348
+        ],
+        "medianMs": 213.5626,
+        "diskBytes": 7610304
+      }
+    }
+  },
+  "runs": {
+    "spectre": [
+      {
+        "verified": true,
+        "write": {
+          "ms": 11478.3435,
+          "ops": 20000
+        },
+        "diskBytes": 4463406,
+        "read": {
+          "ms": 178.6941,
+          "ops": 100000
+        },
+        "readMany": {
+          "ms": 84.0695,
+          "ops": 100000
+        },
+        "scan": {
+          "ms": 15.9065,
+          "ops": 20000
+        },
+        "count": {
+          "ms": 3.6867,
+          "ops": 200000
+        },
+        "mixed": {
+          "ms": 4677.3359,
+          "ops": 40000
+        },
+        "delete": {
+          "ms": 60.2031,
+          "ops": 20000
+        },
+        "writeBatched": {
+          "ms": 111.4962,
+          "ops": 20000
+        },
+        "diskBytesBatched": 4463406,
+        "run": 0,
+        "elapsedMs": 16711
+      },
+      {
+        "verified": true,
+        "write": {
+          "ms": 11797.7206,
+          "ops": 20000
+        },
+        "diskBytes": 4463406,
+        "read": {
+          "ms": 212.0606,
+          "ops": 100000
+        },
+        "readMany": {
+          "ms": 99.5189,
+          "ops": 100000
+        },
+        "scan": {
+          "ms": 30.42,
+          "ops": 20000
+        },
+        "count": {
+          "ms": 5.9272,
+          "ops": 200000
+        },
+        "mixed": {
+          "ms": 4945.5363,
+          "ops": 40000
+        },
+        "delete": {
+          "ms": 71.513,
+          "ops": 20000
+        },
+        "writeBatched": {
+          "ms": 123.802,
+          "ops": 20000
+        },
+        "diskBytesBatched": 4463406,
+        "run": 1,
+        "elapsedMs": 17376
+      }
+    ],
+    "sqlite": [
+      {
+        "verified": true,
+        "write": {
+          "ms": 12008.8332,
+          "ops": 20000
+        },
+        "diskBytes": 4456448,
+        "read": {
+          "ms": 536.3006,
+          "ops": 100000
+        },
+        "readMany": {
+          "ms": 530.8758,
+          "ops": 100000
+        },
+        "scan": {
+          "ms": 20.3425,
+          "ops": 20000
+        },
+        "count": {
+          "ms": 10.474,
+          "ops": 200000
+        },
+        "mixed": {
+          "ms": 5154.1342,
+          "ops": 40000
+        },
+        "delete": {
+          "ms": 78.95,
+          "ops": 20000
+        },
+        "writeBatched": {
+          "ms": 73.0429,
+          "ops": 20000
+        },
+        "diskBytesBatched": 4456448,
+        "run": 0,
+        "elapsedMs": 18543
+      },
+      {
+        "verified": true,
+        "write": {
+          "ms": 11989.8577,
+          "ops": 20000
+        },
+        "diskBytes": 4456448,
+        "read": {
+          "ms": 536.25,
+          "ops": 100000
+        },
+        "readMany": {
+          "ms": 544.9947,
+          "ops": 100000
+        },
+        "scan": {
+          "ms": 20.1082,
+          "ops": 20000
+        },
+        "count": {
+          "ms": 9.2481,
+          "ops": 200000
+        },
+        "mixed": {
+          "ms": 5028.2902,
+          "ops": 40000
+        },
+        "delete": {
+          "ms": 90.0402,
+          "ops": 20000
+        },
+        "writeBatched": {
+          "ms": 84.2215,
+          "ops": 20000
+        },
+        "diskBytesBatched": 4456448,
+        "run": 1,
+        "elapsedMs": 18441
+      }
+    ],
+    "lmdb": [
+      {
+        "verified": true,
+        "write": {
+          "ms": 3027.1291,
+          "ops": 20000
+        },
+        "diskBytes": 7610304,
+        "read": {
+          "ms": 135.426,
+          "ops": 100000
+        },
+        "readMany": {
+          "ms": 254.6331,
+          "ops": 100000
+        },
+        "scan": {
+          "ms": 17.7917,
+          "ops": 20000
+        },
+        "count": {
+          "ms": 13.6959,
+          "ops": 200000
+        },
+        "mixed": {
+          "ms": 1223.9509,
+          "ops": 40000
+        },
+        "delete": {
+          "ms": 168.7461,
+          "ops": 20000
+        },
+        "writeBatched": {
+          "ms": 238.9424,
+          "ops": 20000
+        },
+        "diskBytesBatched": 7610304,
+        "run": 0,
+        "elapsedMs": 5163
+      },
+      {
+        "verified": true,
+        "write": {
+          "ms": 3830.92,
+          "ops": 20000
+        },
+        "diskBytes": 7610304,
+        "read": {
+          "ms": 200.2808,
+          "ops": 100000
+        },
+        "readMany": {
+          "ms": 290.9738,
+          "ops": 100000
+        },
+        "scan": {
+          "ms": 19.4248,
+          "ops": 20000
+        },
+        "count": {
+          "ms": 14.8434,
+          "ops": 200000
+        },
+        "mixed": {
+          "ms": 1899.889,
+          "ops": 40000
+        },
+        "delete": {
+          "ms": 258.3791,
+          "ops": 20000
+        },
+        "writeBatched": {
+          "ms": 319.887,
+          "ops": 20000
+        },
+        "diskBytesBatched": 7610304,
+        "run": 1,
+        "elapsedMs": 6932
+      }
+    ]
+  },
+  "failures": [],
+  "totalWallTimeMs": 83169
+}

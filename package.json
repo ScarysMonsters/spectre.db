@@ -1,6 +1,6 @@
 {
   "name": "@sexfy/spectre.db",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "description": "High-performance key-value storage in Rust for Node.js & Bun: binary v2 format (CRC32, WAL v3 + LSN, segmented incremental compaction), lazy cursors, secondary indexes, raw binary values, zstd compression, dual-engine with v1.1.0 JSON fallback.",
   "main": "index.js",
   "scripts": {
@@ -55,11 +55,11 @@
     "./package.json": "./package.json"
   },
   "optionalDependencies": {
-    "spectre-db-linux-x64-gnu": "2.0.0",
-    "spectre-db-linux-x64-musl": "2.0.0",
-    "spectre-db-darwin-x64": "2.0.0",
-    "spectre-db-darwin-arm64": "2.0.0",
-    "spectre-db-win32-x64-msvc": "2.0.0"
+    "spectre-db-linux-x64-gnu": "2.0.1",
+    "spectre-db-linux-x64-musl": "2.0.1",
+    "spectre-db-darwin-x64": "2.0.1",
+    "spectre-db-darwin-arm64": "2.0.1",
+    "spectre-db-win32-x64-msvc": "2.0.1"
   },
   "publishConfig": {
     "access": "public"

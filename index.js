@@ -229,8 +229,17 @@ class Database extends EventEmitter {
   get(key) {
     this._assertOpen();
     if (this._engineKind === 'fallback') return this._engine.get(key);
-    const raw = ncall(this._engine, 'getJson', key);
-    return raw == null ? null : JSON.parse(raw);
+    let raw;
+    try {
+      raw = this._engine.getJson(key);
+    } catch (err) {
+      throw decodeNativeError(err);
+    }
+    if (raw == null) return null;
+    if (raw.charCodeAt(0) === 34 && raw.indexOf('\\') === -1) {
+      return raw.slice(1, -1);
+    }
+    return JSON.parse(raw);
   }
 
   set(key, value) {
@@ -262,6 +271,40 @@ class Database extends EventEmitter {
 
   has(key) {
     return this.get(key) !== null;
+  }
+
+  getMany(keys) {
+    this._assertOpen();
+    if (!Array.isArray(keys)) {
+      throw new TypeError('[spectre.db] getMany() expects an array of keys');
+    }
+    if (this._engineKind === 'fallback') return keys.map((key) => this.get(key));
+    const doc = ncall(this._engine, 'getManyJson', keys);
+    return JSON.parse(doc);
+  }
+
+  setMany(entries) {
+    this._assertOpen();
+    if (!Array.isArray(entries)) {
+      throw new TypeError('[spectre.db] setMany() expects an array of [key, value] pairs');
+    }
+    const results = new Array(entries.length);
+    if (this._engineKind === 'fallback') {
+      for (let i = 0; i < entries.length; i++) {
+        results[i] = this.set(entries[i][0], entries[i][1]);
+      }
+      return results;
+    }
+    const keys = new Array(entries.length);
+    const jsons = new Array(entries.length);
+    for (let i = 0; i < entries.length; i++) {
+      const entry = entries[i];
+      keys[i] = entry[0];
+      jsons[i] = JSON.stringify(entry[1]);
+      results[i] = entry[1];
+    }
+    if (entries.length > 0) ncall(this._engine, 'setManyPairs', keys, jsons);
+    return results;
   }
 
   delete(key) {
@@ -369,20 +412,22 @@ class Database extends EventEmitter {
     let after = opts.after ?? '';
     let budget = opts.limit ?? Infinity;
     let buffer = [];
+    let offset = 0;
     let done = false;
     return {
       [Symbol.asyncIterator]() { return this; },
       async next() {
-        if (buffer.length === 0) {
+        if (offset >= buffer.length) {
           if (done || budget <= 0 || self._closed) return { done: true, value: undefined };
           const page = self._scanPage(prefix, after, Math.min(pageSize, budget));
           buffer = page.rows;
+          offset = 0;
           after = page.cursor;
           budget -= buffer.length;
           if (page.cursor == null) done = true;
           if (buffer.length === 0 && done) return { done: true, value: undefined };
         }
-        const [ID, data] = buffer.shift();
+        const [ID, data] = buffer[offset++];
         return { done: false, value: { ID, data } };
       },
     };
@@ -390,6 +435,34 @@ class Database extends EventEmitter {
 
   iterate(opts) {
     return this.scan(opts);
+  }
+
+  scanSync(opts = {}) {
+    const self = this;
+    const pageSize = Math.max(1, opts.pageSize ?? 500);
+    let prefix = opts.prefix;
+    let after = opts.after ?? '';
+    let budget = opts.limit ?? Infinity;
+    let buffer = [];
+    let offset = 0;
+    let done = false;
+    return {
+      [Symbol.iterator]() { return this; },
+      next() {
+        if (offset >= buffer.length) {
+          if (done || budget <= 0 || self._closed) return { done: true, value: undefined };
+          const page = self._scanPage(prefix, after, Math.min(pageSize, budget));
+          buffer = page.rows;
+          offset = 0;
+          after = page.cursor;
+          budget -= buffer.length;
+          if (page.cursor == null) done = true;
+          if (buffer.length === 0 && done) return { done: true, value: undefined };
+        }
+        const [ID, data] = buffer[offset++];
+        return { done: false, value: { ID, data } };
+      },
+    };
   }
 
 
@@ -602,11 +675,13 @@ class Database extends EventEmitter {
         let flags;
         if (this._engineKind === 'native' && ops.every((o) => o.type === 'set')) {
 
-          const parts = new Array(ops.length);
+          const keys = new Array(ops.length);
+          const jsons = new Array(ops.length);
           for (let i = 0; i < ops.length; i++) {
-            parts[i] = '[' + JSON.stringify(ops[i].key) + ',' + ops[i].json + ']';
+            keys[i] = ops[i].key;
+            jsons[i] = ops[i].json;
           }
-          flags = ncall(this._engine, 'setManyJson', '[' + parts.join(',') + ']');
+          flags = ncall(this._engine, 'setManyPairs', keys, jsons);
         } else {
           flags = ncall(this._engine, 'batch', ops);
         }
@@ -683,11 +758,13 @@ class Database extends EventEmitter {
       }
       if (ops.length > 0) {
         if (this._engineKind === 'native' && ops.every((o) => o.type === 'set')) {
-          const parts = new Array(ops.length);
+          const keys = new Array(ops.length);
+          const jsons = new Array(ops.length);
           for (let i = 0; i < ops.length; i++) {
-            parts[i] = '[' + JSON.stringify(ops[i].key) + ',' + ops[i].json + ']';
+            keys[i] = ops[i].key;
+            jsons[i] = ops[i].json;
           }
-          ncall(this._engine, 'setManyJson', '[' + parts.join(',') + ']');
+          ncall(this._engine, 'setManyPairs', keys, jsons);
         } else {
           ncall(this._engine, 'batch', ops);
         }
@@ -892,4 +969,4 @@ class Table {
   }
 }
 
-module.exports = { Database, Table, hasNativeEngine: nativeBinding != null, version: '2.0.0' };
+module.exports = { Database, Table, hasNativeEngine: nativeBinding != null, version: '2.0.1' };

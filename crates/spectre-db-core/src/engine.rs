@@ -8,6 +8,7 @@ use crate::pathnorm::DbPaths;
 use crate::store::Store;
 use crate::validator;
 
+use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs::{File, OpenOptions};
 use std::io::Write;
@@ -485,35 +486,74 @@ impl Engine {
 
 
     pub fn get(&mut self, key: &str) -> Result<Option<Vec<u8>>> {
+        Ok(self.get_cow(key)?.map(|value| value.into_owned()))
+    }
+
+    pub fn get_cow<'a>(&'a mut self, key: &str) -> Result<Option<Cow<'a, [u8]>>> {
         self.check_open()?;
-        validator::validate_key(key)?;
-        let bytes = match self.store.get(key.as_bytes()) {
-            Some(v) => {
+        let hit = self
+            .store
+            .get_ref(key.as_bytes())
+            .map(|bytes| (bytes.as_ptr(), bytes.len()));
+        if let Some((pointer, length)) = hit {
+            self.cache_hits += 1;
+            // SAFETY: the store is not mutated after this lookup, so the value pointer
+            // stays valid for the lifetime of the returned borrow.
+            let bytes: &'a [u8] = unsafe { std::slice::from_raw_parts(pointer, length) };
+            if let Some(k) = &self.enc_key {
+                if crypto::looks_encrypted(bytes) {
+                    return Ok(Some(Cow::Owned(crypto::decrypt_value(bytes, k)?)));
+                }
+            }
+            return Ok(Some(Cow::Borrowed(bytes)));
+        }
+        validator::validate_key_fast(key)?;
+        match self.store.get(key.as_bytes()) {
+            Some(bytes) => {
                 self.cache_hits += 1;
-                v
+                Ok(Some(Cow::Owned(bytes)))
             }
             None => {
                 self.cache_misses += 1;
-                return Ok(None);
-            }
-        };
-        if let Some(k) = &self.enc_key {
-            if crypto::looks_encrypted(&bytes) {
-                return Ok(Some(crypto::decrypt_value(&bytes, k)?));
+                Ok(None)
             }
         }
-        Ok(Some(bytes))
     }
 
     pub fn has(&self, key: &str) -> Result<bool> {
         self.check_open()?;
-        validator::validate_key(key)?;
-        Ok(self.store.contains(key.as_bytes()))
+        if self.store.contains(key.as_bytes()) {
+            return Ok(true);
+        }
+        validator::validate_key_fast(key)?;
+        Ok(false)
+    }
+
+    pub fn get_many_json(&mut self, keys: &[String]) -> Result<String> {
+        self.check_open()?;
+        let mut out = String::with_capacity(keys.len() * 32 + 2);
+        out.push('[');
+        for (index, key) in keys.iter().enumerate() {
+            if index > 0 {
+                out.push(',');
+            }
+            match self.get_cow(key)? {
+                Some(bytes) => {
+                    let text = std::str::from_utf8(bytes.as_ref()).map_err(|_| {
+                        SpectreError::new(codes::OPERATION_FAILED, "Stored value is not valid UTF-8")
+                    })?;
+                    out.push_str(text);
+                }
+                None => out.push_str("null"),
+            }
+        }
+        out.push(']');
+        Ok(out)
     }
 
     pub fn set(&mut self, key: &str, value_json: &[u8]) -> Result<()> {
         self.check_open()?;
-        validator::validate_key(key)?;
+        validator::validate_key_fast(key)?;
         validator::validate_value_size(value_json.len())?;
         serde_json::from_slice::<serde::de::IgnoredAny>(value_json)
             .map_err(|_| SpectreError::new(codes::OPERATION_FAILED, "Value is not valid JSON"))?;
@@ -536,7 +576,7 @@ impl Engine {
 
     pub fn delete(&mut self, key: &str) -> Result<bool> {
         self.check_open()?;
-        validator::validate_key(key)?;
+        validator::validate_key_fast(key)?;
         if self.store.delete(key.as_bytes()) {
             self.dirty.insert(key.as_bytes().to_vec());
             self.index_touch(key.as_bytes());
@@ -566,7 +606,7 @@ impl Engine {
             if let Op::Set { key, value } = op {
                 let k = std::str::from_utf8(key)
                     .map_err(|_| SpectreError::invalid_key("Non-UTF-8 key in batch"))?;
-                validator::validate_key(k)?;
+                validator::validate_key_fast(k)?;
                 validator::validate_value_size(value.len())?;
             }
         }
@@ -1165,7 +1205,7 @@ impl Engine {
 
     pub fn set_raw(&mut self, key: &str, bytes: &[u8]) -> Result<()> {
         self.check_open()?;
-        validator::validate_key(key)?;
+        validator::validate_key_fast(key)?;
         validator::validate_value_size(bytes.len())?;
         self.store.set_raw(key.as_bytes(), bytes.to_vec().into_boxed_slice());
         self.dirty.insert(key.as_bytes().to_vec());
@@ -1178,22 +1218,18 @@ impl Engine {
 
     pub fn get_raw(&mut self, key: &str) -> Result<Option<Vec<u8>>> {
         self.check_open()?;
-        validator::validate_key(key)?;
-        match self.store.get_raw(key.as_bytes()) {
-            Some(v) => {
-                self.cache_hits += 1;
-                Ok(Some(v))
-            }
-            None => {
-                self.cache_misses += 1;
-                Ok(None)
-            }
+        if let Some(v) = self.store.get_raw(key.as_bytes()) {
+            self.cache_hits += 1;
+            return Ok(Some(v));
         }
+        validator::validate_key_fast(key)?;
+        self.cache_misses += 1;
+        Ok(None)
     }
 
     pub fn delete_raw(&mut self, key: &str) -> Result<bool> {
         self.check_open()?;
-        validator::validate_key(key)?;
+        validator::validate_key_fast(key)?;
         if self.store.delete_raw(key.as_bytes()) {
             self.dirty.insert(key.as_bytes().to_vec());
             self.wal_append(&Op::Del {
@@ -1229,6 +1265,55 @@ impl Engine {
             out.push((String::from_utf8_lossy(&k).into_owned(), value));
         }
         Ok((out, String::from_utf8_lossy(&cursor).into_owned()))
+    }
+
+    pub fn scan_json_page(
+        &mut self,
+        prefix: Option<&str>,
+        after: &str,
+        limit: usize,
+    ) -> Result<String> {
+        self.check_open()?;
+        let (rows, cursor) = self.store.page_ref(
+            prefix.map(|p| p.as_bytes()),
+            after.as_bytes(),
+            limit.max(1),
+        );
+        let mut capacity = 32;
+        for &(key, value) in &rows {
+            capacity += key.len() + value.len() + 16;
+        }
+        let mut out = String::with_capacity(capacity);
+        out.push_str("{\"rows\":[");
+        for (index, &(key, value)) in rows.iter().enumerate() {
+            if index > 0 {
+                out.push(',');
+            }
+            out.push('[');
+            push_json_string(&mut out, key);
+            out.push(',');
+            let decrypted;
+            let bytes: &[u8] = match &self.enc_key {
+                Some(enc_key) if crypto::looks_encrypted(value) => {
+                    decrypted = crypto::decrypt_value(value, enc_key)?;
+                    &decrypted
+                }
+                _ => value,
+            };
+            match std::str::from_utf8(bytes) {
+                Ok(text) => out.push_str(text),
+                Err(_) => out.push_str(&String::from_utf8_lossy(bytes)),
+            }
+            out.push(']');
+        }
+        out.push_str("],\"cursor\":");
+        if cursor.is_empty() {
+            out.push_str("null");
+        } else {
+            push_json_string(&mut out, &cursor);
+        }
+        out.push('}');
+        Ok(out)
     }
 
 
@@ -1440,6 +1525,35 @@ fn write_file_atomic(
             Err(e)
         }
     }
+}
+
+fn push_json_string(out: &mut String, bytes: &[u8]) {
+    out.push('"');
+    let text = String::from_utf8_lossy(bytes);
+    let mut start = 0;
+    for (index, ch) in text.char_indices() {
+        let escaped = match ch {
+            '"' => "\\\"",
+            '\\' => "\\\\",
+            '\n' => "\\n",
+            '\r' => "\\r",
+            '\t' => "\\t",
+            '\u{08}' => "\\b",
+            '\u{0C}' => "\\f",
+            c if (c as u32) < 0x20 => "",
+            _ => continue,
+        };
+        out.push_str(&text[start..index]);
+        if escaped.is_empty() {
+            use std::fmt::Write;
+            let _ = write!(out, "\\u{:04x}", ch as u32);
+        } else {
+            out.push_str(escaped);
+        }
+        start = index + ch.len_utf8();
+    }
+    out.push_str(&text[start..]);
+    out.push('"');
 }
 
 fn crash_point_named(name: &str) {

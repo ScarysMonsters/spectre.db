@@ -51,6 +51,30 @@ describe('basic CRUD (both engines)', () => {
     cleanup(dir);
   });
 
+  test('getMany/setMany/scanSync bulk helpers', async () => {
+    const { dir, dbPath } = fresh('bulk');
+    const db = new Database(dbPath);
+    await db.ready;
+
+    const written = db.setMany([
+      ['user.1', { name: 'a' }],
+      ['user.2', { name: 'b' }],
+    ]);
+    expect(written).toEqual([{ name: 'a' }, { name: 'b' }]);
+    expect(db.getMany(['user.1', 'user.2', 'missing'])).toEqual([
+      { name: 'a' },
+      { name: 'b' },
+      null,
+    ]);
+
+    const ids = [];
+    for (const row of db.scanSync({ prefix: 'user.' })) ids.push(row.ID);
+    expect(ids.sort()).toEqual(['user.1', 'user.2']);
+
+    await db.close();
+    cleanup(dir);
+  });
+
   test('dot-path nesting and branch semantics', async () => {
     const { dir, dbPath } = fresh('dots');
     const db = new Database(dbPath);

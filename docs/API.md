@@ -11,7 +11,7 @@ const { Database, Table, hasNativeEngine, version } = require('@sexfy/spectre.db
 | `Database` | class | The database handle |
 | `Table` | class | Namespaced view (created via `db.table(name)`) |
 | `hasNativeEngine` | boolean | `true` when the Rust addon is loaded |
-| `version` | string | Package version (`'2.0.0'`) |
+| `version` | string | Package version (`'2.0.1'`) |
 
 TypeScript definitions are shipped in `index.d.ts`.
 
@@ -94,6 +94,33 @@ db.get('user.name'); // 'Alice'
 db.get('user');      // { name: 'Alice', age: 30 }
 db.get('missing');   // null
 ```
+
+### `getMany(keys)`
+
+Returns an array of values in the same order as `keys`. Missing keys yield
+`null`. The lookup runs in a single native call, which is substantially faster
+than calling `get()` in a loop for bulk reads.
+
+```js
+db.getMany(['user.name', 'user.age', 'missing']);
+// ['Alice', 30, null]
+```
+
+Requires the native engine; the JavaScript fallback maps over `get()`.
+
+### `setMany(entries)`
+
+Writes an array of `[key, value]` pairs in one native batch call and returns the
+values written. Use it for bulk ingestion instead of looping over `set()`.
+
+```js
+db.setMany([
+  ['user.1', { name: 'Alice', age: 30 }],
+  ['user.2', { name: 'Bob', age: 25 }],
+]);
+```
+
+Requires the native engine; the JavaScript fallback maps over `set()`.
 
 ### `set(key, value)`
 
@@ -396,7 +423,7 @@ v1.1.0-shaped stats.
 | Field | Description |
 |---|---|
 | `driver` | Always `'spectre.db'` |
-| `engine` | Engine string, e.g. `'spectre.db/2.0.0 (rust)'` |
+| `engine` | Engine string, e.g. `'spectre.db/2.0.1 (rust)'` |
 | `format` | `'v2'` or `'json'` |
 | `compress` / `compression` | Compression flags |
 | `encrypted` / `snapshotEncrypted` | Encryption flags |

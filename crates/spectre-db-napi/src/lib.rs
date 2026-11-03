@@ -143,12 +143,18 @@ impl SpectreEngine {
 
     #[napi]
     pub fn get_json(&self, env: Env, key: String) -> napi::Result<Option<JsString>> {
-        match lock(&self.inner).get(&key).map_err(to_napi_err)? {
+        let mut guard = lock(&self.inner);
+        match guard.get_cow(&key).map_err(to_napi_err)? {
             Some(bytes) => {
-                let text = std::str::from_utf8(&bytes)
-                    .map(|s| s.to_owned())
-                    .unwrap_or_else(|_| String::from_utf8_lossy(&bytes).into_owned());
-                Ok(Some(env.create_string_from_std(text)?))
+                match std::str::from_utf8(bytes.as_ref()) {
+                    Ok(value) => Ok(Some(unsafe {
+                        env.create_string_from_c_char(value.as_ptr().cast(), value.len() as isize)?
+                    })),
+                    Err(_) => {
+                        let value = String::from_utf8_lossy(bytes.as_ref()).into_owned();
+                        Ok(Some(env.create_string_from_std(value)?))
+                    }
+                }
             }
             None => Ok(None),
         }
@@ -157,6 +163,11 @@ impl SpectreEngine {
     #[napi]
     pub fn has(&self, key: String) -> napi::Result<bool> {
         lock(&self.inner).has(&key).map_err(to_napi_err)
+    }
+
+    #[napi]
+    pub fn get_many_json(&self, keys: Vec<String>) -> napi::Result<String> {
+        lock(&self.inner).get_many_json(&keys).map_err(to_napi_err)
     }
 
 
@@ -198,15 +209,35 @@ impl SpectreEngine {
 
     #[napi]
     pub fn set_many_json(&self, doc: String) -> napi::Result<Vec<bool>> {
-        let pairs: Vec<(String, serde_json::Value)> = serde_json::from_str(&doc)
+        let pairs: Vec<(String, Box<serde_json::value::RawValue>)> = serde_json::from_str(&doc)
             .map_err(|e| napi::Error::new(napi::Status::GenericFailure, format!("Invalid batch document: {}", e)))?;
         let mut core_ops = Vec::with_capacity(pairs.len());
         for (key, value) in pairs {
-            let json = serde_json::to_vec(&value)
-                .map_err(|e| napi::Error::new(napi::Status::GenericFailure, format!("Value serialization failed: {}", e)))?;
-            core_ops.push(core::Op::Set { key: key.into_bytes(), value: json.into_boxed_slice() });
+            core_ops.push(core::Op::Set {
+                key: key.into_bytes(),
+                value: value.get().as_bytes().to_vec().into_boxed_slice(),
+            });
         }
         lock(&self.inner).batch(core_ops).map_err(to_napi_err)
+    }
+
+    #[napi]
+    pub fn set_many_pairs(&self, keys: Vec<String>, jsons: Vec<String>) -> napi::Result<Vec<bool>> {
+        if keys.len() != jsons.len() {
+            return Err(napi::Error::new(
+                napi::Status::GenericFailure,
+                "keys and jsons must have the same length",
+            ));
+        }
+        let ops: Vec<core::Op> = keys
+            .into_iter()
+            .zip(jsons)
+            .map(|(key, json)| core::Op::Set {
+                key: key.into_bytes(),
+                value: json.into_bytes().into_boxed_slice(),
+            })
+            .collect();
+        lock(&self.inner).batch(ops).map_err(to_napi_err)
     }
 
 
@@ -224,36 +255,13 @@ impl SpectreEngine {
         after: Option<String>,
         limit: Option<u32>,
     ) -> napi::Result<JsString> {
-        let (rows, cursor) = lock(&self.inner)
-            .scan_page(
+        let out = lock(&self.inner)
+            .scan_json_page(
                 prefix.as_deref(),
                 after.as_deref().unwrap_or(""),
                 limit.unwrap_or(500) as usize,
             )
             .map_err(to_napi_err)?;
-        let mut out = String::with_capacity(64 + rows.len() * 48);
-        out.push_str("{\"rows\":[");
-        let mut first = true;
-        for (k, v) in &rows {
-            if first {
-                first = false;
-            } else {
-                out.push(',');
-            }
-
-            out.push_str("[");
-            out.push_str(&serde_json::to_string(k).unwrap_or_else(|_| "\"\"".into()));
-            out.push(',');
-            out.push_str(&String::from_utf8_lossy(v));
-            out.push(']');
-        }
-        out.push_str("],\"cursor\":");
-        if cursor.is_empty() {
-            out.push_str("null");
-        } else {
-            out.push_str(&serde_json::to_string(&cursor).unwrap_or_else(|_| "\"\"".into()));
-        }
-        out.push('}');
         env.create_string_from_std(out)
     }
 
@@ -338,7 +346,7 @@ impl SpectreEngine {
         let st = lock(&self.inner).stats().map_err(to_napi_err)?;
         Ok(StatsObject {
             driver: "spectre.db".to_string(),
-            engine: "spectre.db/2.0.0 (rust)".to_string(),
+            engine: "spectre.db/2.0.1 (rust)".to_string(),
             format: st.format,
             compress: st.compress,
             compression: st.compression,

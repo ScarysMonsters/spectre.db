@@ -1,5 +1,30 @@
 # Changelog — spectre.db
 
+## 2.0.1 (2026-11-03)
+
+Performance release. No on-disk format change and no API break: v1.1.0 (JSON) and v2.0.0 (binary) databases open unchanged.
+
+### Performance
+- **Point reads**: added an O(1) hash index alongside the ordered B-tree; `get()` now uses a zero-copy path and a single lookup. `db.get` improved from 268k to 641k ops/s in the benchmark (+2.4x), ahead of LMDB.
+- **Key validation**: ASCII fast path without Unicode normalization or allocations on hot read paths.
+- **Scan**: direct JSON page builder (no row clones, no per-key `serde_json` allocation) plus `scanSync()`; `scan()` no longer uses the O(n²) `Array.shift()`. Scan improved from 577k to 1.40M rows/s (+2.4x).
+- **Count**: `count()` no longer materializes `all()`; improved from 2.4M to 27.6M ops/s.
+- **Batch writes**: `RawValue` batch parsing and the native `setManyPairs` path; batch ingestion is 2.8x faster than LMDB.
+- **N-API**: values are handed to V8 directly from the store buffer, without an intermediate Rust `String`.
+
+### Added
+- `db.getMany(keys)` — bulk lookup in a single native call.
+- `db.setMany(entries)` — bulk `[key, value]` writes in a single native call.
+- `db.scanSync(opts)` — synchronous iterator with no per-row promises.
+- `benchmarks/` — reproducible SQLite / LMDB comparison harness with committed results.
+
+### Internal
+- `Store` now keeps a `BTreeMap` and a `HashMap<Arc<[u8]>>`; values are shared between both indexes.
+- Tests: 78 Rust core, 35 Jest, 9 fallback.
+
+### Benchmarks
+See the Benchmarks section in `README.md`. Raw JSON results are in `benchmarks/results/`.
+
 ## 2.0.0 (2026-09-12)
 
 New engine generation: binary v2 format, scalability and crash-safety proven by fault-injection tests.

@@ -135,6 +135,22 @@ mod tests {
     }
 
     #[test]
+    fn get_many_json_roundtrip() {
+        let dir = tmpdir("getmany");
+        let path = dir.join("data.db");
+        let mut db = Engine::open(&path, opts()).unwrap();
+        db.set("user.1", br#"{"name":"a"}"#).unwrap();
+        db.set("user.2", br#"{"name":"b"}"#).unwrap();
+        let keys = vec!["user.1".to_string(), "missing".to_string(), "user.2".to_string()];
+        assert_eq!(
+            db.get_many_json(&keys).unwrap(),
+            r#"[{"name":"a"},null,{"name":"b"}]"#
+        );
+        db.close().unwrap();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn migration_json_to_v2_and_back() {
         let dir = tmpdir("migrate");
         let path = dir.join("m.json");
@@ -400,6 +416,23 @@ mod v2_tests {
         db.set_raw("blob", &[0u8, 159, 146, 150]).unwrap();
         let (rows, _) = db.scan_page(None, "", 1000).unwrap();
         assert_eq!(rows.len(), 100);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn scan_json_page_matches_scan_page() {
+        let dir = tmpdir("scanjsonpage");
+        let mut db = Engine::open(&dir.join("s.db"), opts()).unwrap();
+        for i in 0..25 {
+            db.set(&format!("user.{}", i), br#"{"i":1}"#).unwrap();
+        }
+        let (rows, next) = db.scan_page(Some("user"), "", 10).unwrap();
+        let json = db.scan_json_page(Some("user"), "", 10).unwrap();
+        let value: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(value["rows"].as_array().unwrap().len(), rows.len());
+        assert_eq!(value["rows"][0][0].as_str().unwrap(), rows[0].0);
+        assert_eq!(value["rows"][0][1]["i"].as_i64().unwrap(), 1);
+        assert_eq!(value["cursor"].as_str().unwrap(), next);
         let _ = std::fs::remove_dir_all(&dir);
     }
 

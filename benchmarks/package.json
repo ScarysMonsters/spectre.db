@@ -1,0 +1,13 @@
+{
+  "name": "spectre-db-benchmarks",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Benchmark @sexfy/spectre.db against SQLite (node:sqlite) and LMDB",
+  "scripts": {
+    "bench": "node bench.js"
+  },
+  "dependencies": {
+    "@sexfy/spectre.db": "2.0.0",
+    "lmdb": "^3.5.9"
+  }
+}
