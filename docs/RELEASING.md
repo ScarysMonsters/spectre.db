@@ -21,14 +21,14 @@ the same version.
 ## Version bump
 
 ```sh
-node scripts/bump-version.js 2.0.1
+node scripts/bump-version.js 2.1.0
 ```
 
 The script updates:
 
 - root `package.json` (version + `optionalDependencies`),
 - the five `npm/spectre-db-*/package.json`,
-- `crates/spectre-db-core/Cargo.toml` and `crates/spectre-db-napi/Cargo.toml`,
+- `crates/core/Cargo.toml` and `crates/napi/Cargo.toml`,
 - `package-lock.json`.
 
 Consistency is enforced by:
@@ -40,11 +40,11 @@ npm run check-versions   # also runs automatically before publishing (prepublish
 ## Release flow
 
 ```sh
-node scripts/bump-version.js 2.0.1
+node scripts/bump-version.js 2.1.0
 git add -A
-git commit -m "release 2.0.1"
-git tag v2.0.1
-git push origin main v2.0.1
+git commit -m "release 2.1.0"
+git tag v2.1.0
+git push origin main v2.1.0
 ```
 
 Pushing the `v*` tag triggers the **Release** workflow:

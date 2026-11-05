@@ -969,4 +969,4 @@ class Table {
   }
 }
 
-module.exports = { Database, Table, hasNativeEngine: nativeBinding != null, version: '2.0.1' };
+module.exports = { Database, Table, hasNativeEngine: nativeBinding != null, version: '2.1.0' };

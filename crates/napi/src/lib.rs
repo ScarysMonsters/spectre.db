@@ -346,7 +346,7 @@ impl SpectreEngine {
         let st = lock(&self.inner).stats().map_err(to_napi_err)?;
         Ok(StatsObject {
             driver: "spectre.db".to_string(),
-            engine: "spectre.db/2.0.1 (rust)".to_string(),
+            engine: "spectre.db/2.1.0 (rust)".to_string(),
             format: st.format,
             compress: st.compress,
             compression: st.compression,

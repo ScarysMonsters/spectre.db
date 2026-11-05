@@ -13,6 +13,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fs::{File, OpenOptions};
 use std::io::Write;
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -339,13 +340,13 @@ impl Engine {
         if self.mode == FormatMode::V2 {
             let paths: Vec<String> = self.manifest.indexes.clone();
             for p in paths {
-                let entries: Vec<(Vec<u8>, Vec<u8>)> = self
-                    .store
-                    .iter()
-                    .filter(|(k, _)| !crate::store::is_raw_key(k))
-                    .map(|(k, v)| (k.to_vec(), v.to_vec()))
-                    .collect();
-                self.indexes.insert(p.clone(), SecondaryIndex::build(&p, entries.into_iter()));
+                let idx = SecondaryIndex::build(
+                    &p,
+                    self.store
+                        .iter()
+                        .filter(|(k, _)| !crate::store::is_raw_key(k)),
+                );
+                self.indexes.insert(p, idx);
             }
         }
         Ok(())
@@ -567,7 +568,7 @@ impl Engine {
             value_json.to_vec()
         };
 
-        self.store.set(key.as_bytes(), stored.clone().into_boxed_slice());
+        self.store.set_slice(key.as_bytes(), &stored);
         self.dirty.insert(key.as_bytes().to_vec());
         self.index_touch(key.as_bytes());
         self.wal_append(&Op::Set { key: key.as_bytes().to_vec(), value: stored.into_boxed_slice() })?;
@@ -577,8 +578,16 @@ impl Engine {
     pub fn delete(&mut self, key: &str) -> Result<bool> {
         self.check_open()?;
         validator::validate_key_fast(key)?;
+        let removed_descendants = if self.indexes.is_empty() {
+            Vec::new()
+        } else {
+            self.store.descendant_keys(key.as_bytes())
+        };
         if self.store.delete(key.as_bytes()) {
             self.dirty.insert(key.as_bytes().to_vec());
+            for descendant in &removed_descendants {
+                self.index_remove_key(descendant);
+            }
             self.index_touch(key.as_bytes());
             self.wal_append(&Op::Del { key: key.as_bytes().to_vec() })?;
             Ok(true)
@@ -593,7 +602,7 @@ impl Engine {
         self.dirty.clear();
         self.dirty_all = true;
         for idx in self.indexes.values_mut() {
-            idx.tree.clear();
+            idx.clear();
         }
         self.wal_append(&Op::Clear)?;
         Ok(())
@@ -622,23 +631,31 @@ impl Engine {
 
 
         self.wal_append_batch(&ops)?;
-        let mut touched: Vec<Vec<u8>> = Vec::with_capacity(ops.len());
+        let mut touched: BTreeSet<Vec<u8>> = BTreeSet::new();
+        let mut removed: BTreeSet<Vec<u8>> = BTreeSet::new();
         for op in ops {
             match op {
                 Op::Set { key, value } => {
                     self.store.set(&key, value);
                     self.dirty.insert(key.clone());
-                    touched.push(key);
+                    touched.insert(key);
                 }
                 Op::Del { key } => {
+                    removed.insert(key.clone());
+                    if !self.indexes.is_empty() {
+                        removed.extend(self.store.descendant_keys(&key));
+                    }
                     self.store.delete(&key);
                     self.dirty.insert(key.clone());
-                    touched.push(key);
+                    touched.insert(key);
                 }
                 Op::Clear => {
                     self.store.clear();
                     self.dirty.clear();
                     self.dirty_all = true;
+                    for idx in self.indexes.values_mut() {
+                        idx.clear();
+                    }
                 }
                 Op::Batch(sub) => {
                     for s in sub {
@@ -646,12 +663,16 @@ impl Engine {
                             Op::Set { key, value } => {
                                 self.store.set(&key, value);
                                 self.dirty.insert(key.clone());
-                                touched.push(key);
+                                touched.insert(key);
                             }
                             Op::Del { key } => {
+                                removed.insert(key.clone());
+                                if !self.indexes.is_empty() {
+                                    removed.extend(self.store.descendant_keys(&key));
+                                }
                                 self.store.delete(&key);
                                 self.dirty.insert(key.clone());
-                                touched.push(key);
+                                touched.insert(key);
                             }
                             _ => {}
                         }
@@ -659,8 +680,26 @@ impl Engine {
                 }
             }
         }
-        for k in &touched {
-            self.index_touch(k);
+        if !self.indexes.is_empty() {
+            for key in &removed {
+                self.index_remove_key(key);
+            }
+            let mut leaves: BTreeSet<Vec<u8>> = BTreeSet::new();
+            let mut missing: Vec<Vec<u8>> = Vec::new();
+            for key in &touched {
+                match self.resolve_index_leaf(key) {
+                    Some(leaf) => {
+                        leaves.insert(leaf);
+                    }
+                    None => missing.push(key.clone()),
+                }
+            }
+            for key in &missing {
+                self.index_remove_key(key);
+            }
+            for leaf in &leaves {
+                self.index_update_leaf(leaf);
+            }
         }
         Ok(flags)
     }
@@ -731,6 +770,13 @@ impl Engine {
 
     fn wal_append(&mut self, op: &Op) -> Result<()> {
         if self.mode == FormatMode::V2 {
+            let reserve = match op {
+                Op::Set { key, value } => key.len() + value.len() + 32,
+                Op::Del { key } => key.len() + 24,
+                Op::Clear => 16,
+                Op::Batch(_) => 16,
+            };
+            self.wal_buf.reserve(reserve);
             let start = self.wal_buf.len();
             let lsn = self.last_lsn + 1;
             match op {
@@ -782,6 +828,16 @@ impl Engine {
             return self.wal_flush_gate();
         }
         let start = self.wal_buf.len();
+        let mut reserve = 32;
+        for op in ops {
+            reserve += match op {
+                Op::Set { key, value } => key.len() + value.len() + 32,
+                Op::Del { key } => key.len() + 24,
+                Op::Clear => 16,
+                Op::Batch(sub) => sub.len() * 64,
+            };
+        }
+        self.wal_buf.reserve(reserve);
         self.wal_buf.push(formats::OP_BATCH_V3);
         let plen_pos = self.wal_buf.len();
         self.wal_buf.extend_from_slice(&0u32.to_le_bytes());
@@ -1011,8 +1067,8 @@ impl Engine {
         let base = self.paths.base.clone();
         let job = if full_merge {
             let mut scratch = Store::new();
-            for (k, v) in self.store.iter() {
-                scratch.raw_insert(k, v.to_vec().into_boxed_slice());
+            for (k, v) in self.store.iter_arc() {
+                scratch.raw_insert_arc(k, Arc::clone(v));
             }
             self.dirty.clear();
             self.dirty_all = false;
@@ -1021,8 +1077,8 @@ impl Engine {
             let mut scratch = Store::new();
             let dirty_keys: Vec<Vec<u8>> = self.dirty.iter().cloned().collect();
             for k in &dirty_keys {
-                if let Some(v) = self.store.get(k) {
-                    scratch.raw_insert(k, v.into_boxed_slice());
+                if let Some(v) = self.store.get_shared(k) {
+                    scratch.raw_insert_arc(k, v);
                 } else {
                     scratch.raw_insert(k, b"\x00DEL".to_vec().into_boxed_slice());
                 }
@@ -1323,13 +1379,12 @@ impl Engine {
             return Err(SpectreError::invalid_key("Index path is empty"));
         }
         if !self.indexes.contains_key(path) {
-            let entries: Vec<(Vec<u8>, Vec<u8>)> = self
-                .store
-                .iter()
-                .filter(|(k, _)| !crate::store::is_raw_key(k))
-                .map(|(k, v)| (k.to_vec(), v.to_vec()))
-                .collect();
-            let idx = SecondaryIndex::build(path, entries.into_iter());
+            let idx = SecondaryIndex::build(
+                path,
+                self.store
+                    .iter()
+                    .filter(|(k, _)| !crate::store::is_raw_key(k)),
+            );
             self.indexes.insert(path.to_string(), idx);
             if self.mode == FormatMode::V2 {
                 self.write_manifest()?;
@@ -1392,29 +1447,51 @@ impl Engine {
     }
 
 
+    fn resolve_index_leaf(&self, key: &[u8]) -> Option<Vec<u8>> {
+        if self.store.contains(key) {
+            return Some(key.to_vec());
+        }
+        (0..key.len())
+            .find(|&i| key[i] == b'.' && self.store.contains(&key[..i]))
+            .map(|i| key[..i].to_vec())
+    }
+
+    fn index_remove_key(&mut self, key: &[u8]) {
+        for idx in self.indexes.values_mut() {
+            idx.remove_key(key);
+        }
+    }
+
+    fn index_update_leaf(&mut self, leaf: &[u8]) {
+        let parsed: Option<serde_json::Value> = match self.store.get_ref(leaf) {
+            Some(bytes) => {
+                if let Some(enc_key) = &self.enc_key {
+                    if crypto::looks_encrypted(bytes) {
+                        match crypto::decrypt_value(bytes, enc_key) {
+                            Ok(value) => serde_json::from_slice(&value).ok(),
+                            Err(_) => None,
+                        }
+                    } else {
+                        serde_json::from_slice(bytes).ok()
+                    }
+                } else {
+                    serde_json::from_slice(bytes).ok()
+                }
+            }
+            None => None,
+        };
+        for idx in self.indexes.values_mut() {
+            idx.insert_parsed_key(leaf, parsed.as_ref());
+        }
+    }
+
     fn index_touch(&mut self, key: &[u8]) {
         if self.indexes.is_empty() {
             return;
         }
-        let leaf = if self.store.contains(key) {
-            Some(key.to_vec())
-        } else {
-            (0..key.len())
-                .find(|&i| key[i] == b'.' && self.store.contains(&key[..i]))
-                .map(|i| key[..i].to_vec())
-        };
-        match leaf {
-            Some(lk) => {
-                let val = self.store.get(&lk).unwrap_or_default();
-                for idx in self.indexes.values_mut() {
-                    idx.insert_key(&lk, &val);
-                }
-            }
-            None => {
-                for idx in self.indexes.values_mut() {
-                    idx.remove_key(key);
-                }
-            }
+        match self.resolve_index_leaf(key) {
+            Some(leaf) => self.index_update_leaf(&leaf),
+            None => self.index_remove_key(key),
         }
     }
 

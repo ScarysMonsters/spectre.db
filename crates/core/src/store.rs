@@ -13,16 +13,17 @@ pub fn is_raw_key(k: &[u8]) -> bool {
 
 #[derive(Debug, Default)]
 pub struct Store {
-    map: BTreeMap<Vec<u8>, Arc<[u8]>>,
-    hash: HashMap<Vec<u8>, Arc<[u8]>>,
+    map: BTreeMap<Arc<[u8]>, Arc<[u8]>>,
+    hash: HashMap<Arc<[u8]>, Arc<[u8]>>,
 }
 
-fn descendants_range(key: &[u8]) -> (Bound<Vec<u8>>, Bound<Vec<u8>>) {
-    let mut start = key.to_vec();
+fn descendants_range(key: &[u8]) -> (Bound<Arc<[u8]>>, Bound<Arc<[u8]>>) {
+    let mut start = Vec::with_capacity(key.len() + 1);
+    start.extend_from_slice(key);
     start.push(b'.');
     let mut end = start.clone();
     end.push(0xFF);
-    (Bound::Included(start), Bound::Excluded(end))
+    (Bound::Included(Arc::from(start)), Bound::Excluded(Arc::from(end)))
 }
 
 fn parse_value(bytes: &[u8]) -> Option<Value> {
@@ -40,6 +41,30 @@ fn is_envelope(bytes: &[u8]) -> bool {
 
 fn under_prefix(path: &[u8], prefix: &[u8]) -> bool {
     prefix.is_empty() || path.starts_with(prefix)
+}
+
+fn prefix_end(prefix: &[u8]) -> Option<Vec<u8>> {
+    let mut end = prefix.to_vec();
+    while let Some(last) = end.last_mut() {
+        if *last < 0xFF {
+            *last += 1;
+            return Some(end);
+        }
+        end.pop();
+    }
+    None
+}
+
+fn prefix_bounds(prefix: &[u8], after: &[u8]) -> (Bound<Arc<[u8]>>, Bound<Arc<[u8]>>) {
+    let start = if !after.is_empty() && after >= prefix {
+        Bound::Excluded(Arc::from(after))
+    } else {
+        Bound::Included(Arc::from(prefix))
+    };
+    let end = prefix_end(prefix)
+        .map(|end| Bound::Excluded(Arc::from(end)))
+        .unwrap_or(Bound::Unbounded);
+    (start, end)
 }
 
 impl Store {
@@ -62,14 +87,22 @@ impl Store {
 
 
     pub fn raw_insert(&mut self, key: &[u8], value: Box<[u8]>) {
-        let value: Arc<[u8]> = Arc::from(value.into_vec());
-        self.map.insert(key.to_vec(), Arc::clone(&value));
-        self.hash.insert(key.to_vec(), value);
+        self.raw_insert_arc(key, Arc::from(value.into_vec()));
+    }
+
+    pub fn raw_insert_arc(&mut self, key: &[u8], value: Arc<[u8]>) {
+        let key: Arc<[u8]> = Arc::from(key);
+        self.map.insert(Arc::clone(&key), Arc::clone(&value));
+        self.hash.insert(key, value);
     }
 
     fn insert_entry(&mut self, key: Vec<u8>, value: Box<[u8]>) {
-        let value: Arc<[u8]> = Arc::from(value.into_vec());
-        self.map.insert(key.clone(), Arc::clone(&value));
+        self.insert_entry_arc(key, Arc::from(value.into_vec()));
+    }
+
+    fn insert_entry_arc(&mut self, key: Vec<u8>, value: Arc<[u8]>) {
+        let key: Arc<[u8]> = Arc::from(key);
+        self.map.insert(Arc::clone(&key), Arc::clone(&value));
         self.hash.insert(key, value);
     }
 
@@ -97,7 +130,11 @@ impl Store {
     fn remove_with_descendants(&mut self, key: &[u8]) -> bool {
         let mut removed = self.remove_entry(key);
         let (s, e) = descendants_range(key);
-        let doomed: Vec<Vec<u8>> = self.map.range((s, e)).map(|(k, _)| k.clone()).collect();
+        let doomed: Vec<Vec<u8>> = self
+            .map
+            .range((s, e))
+            .map(|(k, _)| k.as_ref().to_vec())
+            .collect();
         for d in &doomed {
             self.remove_entry(d);
             removed = true;
@@ -105,23 +142,40 @@ impl Store {
         removed
     }
 
+    pub fn descendant_keys(&self, key: &[u8]) -> Vec<Vec<u8>> {
+        let (s, e) = descendants_range(key);
+        self.map
+            .range((s, e))
+            .filter(|(k, _)| !is_raw_key(k))
+            .map(|(k, _)| k.as_ref().to_vec())
+            .collect()
+    }
+
 
     pub fn set(&mut self, key: &[u8], value: Box<[u8]>) {
+        self.set_arc(key, Arc::from(value.into_vec()));
+    }
+
+    pub fn set_slice(&mut self, key: &[u8], value: &[u8]) {
+        self.set_arc(key, Arc::from(value));
+    }
+
+    fn set_arc(&mut self, key: &[u8], value: Arc<[u8]>) {
         if let Some(alen) = self.ancestor_leaf(key) {
             let ancestor = self.map.get(&key[..alen]).unwrap();
             if is_plain_object(ancestor) {
-                self.mutate_object_leaf(alen, key, value);
+                self.mutate_object_leaf(alen, key, &value);
                 return;
             }
 
             self.remove_entry(&key[..alen]);
         }
         self.remove_with_descendants(key);
-        self.insert_entry(key.to_vec(), value);
+        self.insert_entry_arc(key.to_vec(), value);
     }
 
 
-    fn mutate_object_leaf(&mut self, alen: usize, key: &[u8], value: Box<[u8]>) {
+    fn mutate_object_leaf(&mut self, alen: usize, key: &[u8], value: &[u8]) {
         let Some(ancestor) = self.map.get(&key[..alen]) else { return };
         let Some(mut root) = parse_value(ancestor) else { return };
         let rest = &key[alen + 1..];
@@ -131,7 +185,7 @@ impl Store {
             let part_str = String::from_utf8_lossy(part).into_owned();
             let last = i == parts.len() - 1;
             if last {
-                if let Ok(v) = serde_json::from_slice::<Value>(&value) {
+                if let Ok(v) = serde_json::from_slice::<Value>(value) {
                     if let Value::Object(map) = cur {
                         map.insert(part_str.clone(), v);
                     }
@@ -277,7 +331,7 @@ impl Store {
             if is_raw_key(k) {
                 continue;
             }
-            let leaf_is_ancestor = !k.starts_with(pfx) && pfx.starts_with(k.as_slice());
+            let leaf_is_ancestor = !k.starts_with(pfx) && pfx.starts_with(k.as_ref());
             if !under_prefix(k, pfx) && !leaf_is_ancestor {
                 continue;
             }
@@ -291,7 +345,30 @@ impl Store {
 
 
     pub fn iter(&self) -> impl Iterator<Item = (&[u8], &[u8])> {
-        self.map.iter().map(|(k, v)| (k.as_slice(), &v[..]))
+        self.map.iter().map(|(k, v)| (k.as_ref(), &v[..]))
+    }
+
+    pub fn iter_arc(&self) -> impl Iterator<Item = (&[u8], &Arc<[u8]>)> {
+        self.map.iter().map(|(k, v)| (k.as_ref(), v))
+    }
+
+    pub fn get_shared(&self, key: &[u8]) -> Option<Arc<[u8]>> {
+        self.hash.get(key).cloned()
+    }
+
+    fn ancestor_entries(&self, prefix: &[u8]) -> Vec<(Arc<[u8]>, Arc<[u8]>)> {
+        let mut out = Vec::new();
+        if prefix.is_empty() {
+            return out;
+        }
+        for index in 1..prefix.len() {
+            if prefix[index] == b'.' {
+                if let Some(value) = self.map.get(&prefix[..index]) {
+                    out.push((Arc::from(&prefix[..index]), Arc::clone(value)));
+                }
+            }
+        }
+        out
     }
 
 
@@ -300,15 +377,14 @@ impl Store {
         k.push(RAW_PREFIX);
         k.extend_from_slice(key);
         let value: Arc<[u8]> = Arc::from(value.into_vec());
-        self.map.insert(k.clone(), Arc::clone(&value));
-        self.hash.insert(k, value);
+        self.raw_insert_arc(&k, value);
     }
 
     pub fn get_raw(&self, key: &[u8]) -> Option<Vec<u8>> {
         let mut k = Vec::with_capacity(key.len() + 1);
         k.push(RAW_PREFIX);
         k.extend_from_slice(key);
-        self.hash.get(&k).map(|v| v.to_vec())
+        self.hash.get(k.as_slice()).map(|v| v.to_vec())
     }
 
     pub fn delete_raw(&mut self, key: &[u8]) -> bool {
@@ -323,18 +399,18 @@ impl Store {
         let pfx: &[u8] = prefix.unwrap_or(b"");
         let mut rows = Vec::new();
         let mut cursor: Vec<u8> = Vec::new();
-        let start = Bound::Excluded(after.to_vec());
+        let (start, end) = prefix_bounds(pfx, after);
         let mut hit_limit = false;
-        for (k, v) in self.map.range((start, Bound::Unbounded)) {
-            if is_raw_key(k) || !under_prefix(k, pfx) {
+        for (k, v) in self.map.range((start, end)) {
+            if is_raw_key(k) {
                 continue;
             }
             if rows.len() >= limit {
                 hit_limit = true;
                 break;
             }
-            rows.push((k.clone(), v.to_vec()));
-            cursor = k.clone();
+            rows.push((k.as_ref().to_vec(), v.to_vec()));
+            cursor = k.as_ref().to_vec();
         }
         if !hit_limit {
             cursor.clear();
@@ -351,10 +427,10 @@ impl Store {
         let pfx: &[u8] = prefix.unwrap_or(b"");
         let mut rows = Vec::with_capacity(limit.min(1024));
         let mut cursor: Vec<u8> = Vec::new();
-        let start = Bound::Excluded(after.to_vec());
+        let (start, end) = prefix_bounds(pfx, after);
         let mut hit_limit = false;
-        for (k, v) in self.map.range((start, Bound::Unbounded)) {
-            if is_raw_key(k) || !under_prefix(k, pfx) {
+        for (k, v) in self.map.range((start, end)) {
+            if is_raw_key(k) {
                 continue;
             }
             if rows.len() >= limit {
@@ -363,7 +439,7 @@ impl Store {
             }
             rows.push((&k[..], &v[..]));
             cursor.clear();
-            cursor.extend_from_slice(k);
+            cursor.extend_from_slice(k.as_ref());
         }
         if !hit_limit {
             cursor.clear();
@@ -708,14 +784,12 @@ impl Store {
 pub fn all(&self, prefix: Option<&[u8]>) -> Vec<(String, Vec<u8>)> {
     let mut out = Vec::new();
     let pfx: &[u8] = prefix.unwrap_or(b"");
-    for (k, v) in &self.map {
+    for (key, value) in self.ancestor_entries(pfx) {
+        Self::split_leaf(&key, &value, pfx, &mut out);
+    }
+    let (start, end) = prefix_bounds(pfx, b"");
+    for (k, v) in self.map.range((start, end)) {
         if is_raw_key(k) {
-            continue;
-        }
-
-
-        let leaf_is_ancestor = !k.starts_with(pfx) && pfx.starts_with(k.as_slice());
-        if !under_prefix(k, pfx) && !leaf_is_ancestor {
             continue;
         }
         Self::split_leaf(k, v, pfx, &mut out);
@@ -758,12 +832,12 @@ fn split_leaf(path: &[u8], value: &[u8], prefix: &[u8], out: &mut Vec<(String, V
         F: FnMut(&[u8], &[u8]) -> crate::error::Result<()>,
     {
         let pfx: &[u8] = prefix.unwrap_or(b"");
-        for (k, v) in &self.map {
+        for (key, value) in self.ancestor_entries(pfx) {
+            Self::scan_leaf(&key, &value, pfx, f)?;
+        }
+        let (start, end) = prefix_bounds(pfx, b"");
+        for (k, v) in self.map.range((start, end)) {
             if is_raw_key(k) {
-                continue;
-            }
-            let leaf_is_ancestor = !k.starts_with(pfx) && pfx.starts_with(k.as_slice());
-            if !under_prefix(k, pfx) && !leaf_is_ancestor {
                 continue;
             }
             Self::scan_leaf(k, v, pfx, f)?;

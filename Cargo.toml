@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/spectre-db-core", "crates/spectre-db-napi"]
+members = ["crates/core", "crates/napi"]
 resolver = "2"
 
 [profile.release]

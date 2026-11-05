@@ -1,5 +1,37 @@
 # Changelog — spectre.db
 
+## 2.1.0 (2026-11-06)
+
+Performance and memory release. No on-disk format change and no public API break: v1.1.0 (JSON) and v2.0.x (binary) databases open unchanged.
+
+### Index maintenance
+- **O(1) index removal**: `SecondaryIndex` now keeps a reverse `HashMap` from key to encoded value and bucket position, with contiguous `Vec` buckets. `remove_key()` no longer scans every indexed value; `insert_key()` no longer degrades with index cardinality.
+- **Shared JSON parsing**: index updates parse the document once per leaf and reuse the parsed value for every index.
+- **Batch deduplication**: repeated keys in a batch are resolved to final leaf values once; descendant keys of a deleted prefix are removed from every index.
+- **Shared encoded values**: keys with the same indexed value share the encoded `Arc`, reducing index memory.
+
+### Prefix scans
+- `page()`, `page_ref()`, `all()` and `scan()` now use lexicographic prefix bounds instead of scanning to the end of the tree and filtering. Ancestor leaves are still included for dotted-path semantics.
+
+### Memory
+- `Store` keys are now shared `Arc<[u8]>` between the ordered `BTreeMap` and the lookup `HashMap`; keys are allocated once instead of twice.
+- Full and delta compaction share immutable `Arc` values with the live store, lowering peak RSS during compaction.
+- WAL buffers reserve the exact frame size before encoding large values.
+
+### Benchmarks (Windows, Node 26, 100k docs, 5 indexes)
+- Indexed insert: **263 → 93,366 ops/s** in the 100k run (up to **355x**).
+- Indexed update: **613 → 46,174 ops/s** (up to **75x**); P50 **319 → 19.6 µs**, P95 **702 → 25.5 µs**, P99 **1,025 → 40.8 µs** (100k run).
+- Indexed insert overhead vs no index: from **×641** to **×1.85** depending on run and cardinality.
+- Prefix scans on 1M keys: 0.1% prefix **57.2 → 0.60 ms** (95x), 1% **37.2 → 7.72 ms** (4.8x), 10% **151 → 65.8 ms** (2.3x).
+- Forced-segment compaction (50k × 4 KB): peak RSS delta **643 → 420 MB** (-34.7%), compaction time **1,086 → 858 ms** (-21%).
+
+### Repository
+- Rust crates moved from `crates/spectre-db-core` / `crates/spectre-db-napi` to `crates/core` / `crates/napi`. Package names remain `spectre-db-core` and `spectre-db-napi`.
+- Added reproducible focused benchmarks: `benchmarks/index-bench.js`, `benchmarks/prefix-bench.js`, `benchmarks/compact-bench.js`, with raw results in `benchmarks/results/2.1/`.
+
+### Tests
+- 86 Rust core tests, 35 Jest tests, 9 fallback tests, smoke test.
+
 ## 2.0.1 (2026-11-03)
 
 Performance release. No on-disk format change and no API break: v1.1.0 (JSON) and v2.0.0 (binary) databases open unchanged.

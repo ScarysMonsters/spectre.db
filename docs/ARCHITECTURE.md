@@ -23,7 +23,7 @@ spectre.db/
 │       ├── events/              ← bounded event emitter
 │       └── utils/               ← validator, path normalizer, JSON safety, error codes
 ├── crates/
-│   ├── spectre-db-core/   ← pure Rust engine (no napi dependency)
+│   ├── core/   ← pure Rust engine (no napi dependency)
 │   │   └── src/
 │   │       ├── engine.rs      ← Engine: open, CRUD, batch, scan, compaction, stats
 │   │       ├── store.rs       ← flat BTreeMap store + JSON field splitter
@@ -36,7 +36,7 @@ spectre.db/
 │   │       ├── json_compat.rs ← v1.1.0 JSON snapshot/WAL compatibility
 │   │       ├── pathnorm.rs    ← path resolution and extension stripping
 │   │       └── error.rs       ← structured error codes
-│   └── spectre-db-napi/   ← napi-rs v3 bindings
+│   └── napi/   ← napi-rs v3 bindings
 │       ├── src/lib.rs         ← SpectreEngine class, CompactTask, error mapping
 │       └── build.rs           ← napi_build::setup() (linker flags)
 ├── npm/                   ← per-platform binary packages (optionalDependencies)
@@ -62,10 +62,10 @@ spectre.db/
 │  index.js (Database + Table, EventEmitter, option mapping)              │
 │      │ JSON.stringify once ─── getJson/setJson/allJson/scanJson         │
 │  ┌───▼──────────────────────────────────────────────────────────────┐   │
-│  │  crates/spectre-db-napi (napi-rs v3)                             │   │
+│  │  crates/napi (napi-rs v3)                             │   │
 │  └───┬──────────────────────────────────────────────────────────────┘   │
 │  ┌───▼──────────────────────────────────────────────────────────────┐   │
-│  │  crates/spectre-db-core (pure Rust)                              │   │
+│  │  crates/core (pure Rust)                              │   │
 │  │  engine · store(BTreeMap) · formats v2 · json_compat · crypto    │   │
 │  │  wal · snapshot · backup · lock · validator · index              │   │
 │  └──────────────────────────────────────────────────────────────────┘   │
@@ -84,7 +84,7 @@ spectre.db/
   methods, `stats()`/`getStats()`, `migrate()` and the event bridge.
 - Falls back to `fallback/` when no native binary is available.
 
-### 2. napi bridge (`crates/spectre-db-napi`)
+### 2. napi bridge (`crates/napi`)
 
 - Exposes `SpectreEngine` with `setJson`, `getJson`, `allJson`, `scanJson`,
   `batch`, `setManyJson`, `stats`, `compact`, `compactAsync`, `migrate`, raw
@@ -97,7 +97,7 @@ spectre.db/
   `"<code>|<message>"`; `index.js` decodes it back into an `Error` with a
   numeric `code` property.
 
-### 3. Rust core (`crates/spectre-db-core`)
+### 3. Rust core (`crates/core`)
 
 | Module | Responsibility |
 |---|---|

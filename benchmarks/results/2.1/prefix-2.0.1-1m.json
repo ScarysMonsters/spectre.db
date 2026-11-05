@@ -1,0 +1,16 @@
+{
+  "package": "@sexfy/spectre.db@2.0.1 (published, MSVC prebuild)",
+  "version": "2.0.1",
+  "native": true,
+  "n": 1000000,
+  "zones": 10,
+  "groups": 100,
+  "perGroup": 1000,
+  "insertMs": 6708.6728,
+  "insertOps": 149061,
+  "results": {
+    "10%": { "prefix": "zone9.", "rows": 100000, "ms": 151.1138, "rowsPerSec": 661753 },
+    "1%": { "prefix": "zone9.group9", "rows": 11000, "ms": 37.2433, "rowsPerSec": 295355 },
+    "0.1%": { "prefix": "zone9.group99.", "rows": 1000, "ms": 57.2316, "rowsPerSec": 17473 }
+  }
+}

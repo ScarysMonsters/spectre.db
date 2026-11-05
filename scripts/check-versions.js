@@ -27,7 +27,7 @@ for (const entry of fs.readdirSync(npmDir)) {
   }
 }
 
-for (const crate of ['spectre-db-core', 'spectre-db-napi']) {
+for (const crate of ['core', 'napi']) {
   const cargoPath = path.join(root, 'crates', crate, 'Cargo.toml');
   const cargo = fs.readFileSync(cargoPath, 'utf8');
   const match = cargo.match(/^version\s*=\s*"([^"]+)"/m);

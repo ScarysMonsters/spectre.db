@@ -80,15 +80,36 @@
 - [x] **TypeScript types** — first-class `index.d.ts`
 - [x] **Prebuilt binaries** — Linux (glibc/musl), macOS (x64/arm64), Windows (x64); no compilation on install
 
-### New in v2.0.1
+### New in v2.1.0
 
+- [x] **O(1) index maintenance** — reverse key map + contiguous buckets; no full index scan on updates
+- [x] **Shared JSON parsing** — one parse per document for all indexes
+- [x] **Prefix-bounded scans** — `page`, `scan`, `all` stop at the prefix boundary
+- [x] **Lower memory** — shared `Arc` keys in the store, shared indexed values, `Arc`-shared compaction snapshots
 - [x] **Bulk APIs** — `getMany()`, `setMany()`, `scanSync()`
-- [x] **Faster hot paths** — hash-indexed point reads, zero-copy values, direct JSON scan pages
-- [x] **Benchmark suite** — reproducible SQLite / LMDB comparison in [`benchmarks/`](benchmarks/)
+- [x] **Crate layout** — `crates/core` and `crates/napi` (package names unchanged)
 
 ---
 
 ## Benchmarks
+
+### 2.1.0 engine improvements
+
+Measured on the same harness before/after; raw JSON in [`benchmarks/results/2.1/`](benchmarks/results/2.1/). The 2.0.1 column is the published MSVC prebuild; the 2.1.0 column is the local GNU build, so absolute cross-toolchain values are indicative and the ratios are the meaningful result.
+
+| Focus | 2.0.1 | 2.1.0 | Gain |
+|---|---:|---:|---:|
+| Indexed insert, 100k docs, 5 indexes | 263 ops/s | 93 366 ops/s | **355x** |
+| Indexed update, 100k docs, 5 indexes | 613 ops/s | 46 174 ops/s | **75x** |
+| Update P50 / P95 / P99 (100k) | 319 / 702 / 1 025 µs | 19.6 / 25.5 / 40.8 µs | up to **20x** |
+| Prefix scan 0.1% of 1M keys | 57.2 ms | 0.60 ms | **95x** |
+| Prefix scan 1% of 1M keys | 37.2 ms | 7.72 ms | **4.8x** |
+| Prefix scan 10% of 1M keys | 151 ms | 65.8 ms | **2.3x** |
+| Compaction peak RSS (50k × 4 KB) | 643 MB | 420 MB | **-34.7%** |
+| Compaction time (50k × 4 KB) | 1 086 ms | 858 ms | **-21%** |
+| Indexed insert overhead vs no index | ×641 | ×1.85 | — |
+
+### Standard workload baseline (2.0.1)
 
 Median of 3 runs on Windows, Node.js 26.4.0, 8 logical cores, 100,000 keys, ~185-byte JSON values. SQLite uses WAL + `synchronous=NORMAL`; LMDB uses its default sync mode; spectre.db runs the local 2.0.1 build with `autoSave: 0` (no background compaction). Higher is better (ops/s).
 
@@ -115,7 +136,7 @@ Raw results: [`benchmarks/results/`](benchmarks/results/). Reproduce:
 cd benchmarks
 npm install
 npm run bench                          # published @sexfy/spectre.db baseline
-SPECTRE_BENCH_LOCAL=1 node bench.js    # local build (2.0.1+)
+SPECTRE_BENCH_LOCAL=1 node bench.js    # local build (2.1.0+)
 ```
 
 On Windows PowerShell: `$env:SPECTRE_BENCH_LOCAL=1; node bench.js`.

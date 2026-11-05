@@ -1,6 +1,6 @@
 {
   "name": "spectre-db-win32-x64-msvc",
-  "version": "2.0.1",
+  "version": "2.1.0",
   "description": "spectre-db native binary for win32-x64-msvc (napi-rs prebuild)",
   "main": "index.js",
   "os": [

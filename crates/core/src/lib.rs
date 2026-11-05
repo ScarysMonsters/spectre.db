@@ -697,6 +697,89 @@ mod v2_tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    #[test]
+    fn batch_index_updates_are_deduplicated() {
+        use crate::formats::Op;
+        let dir = tmpdir("indexbatch");
+        let path = dir.join("ib.db");
+        let mut db = Engine::open(&path, opts()).unwrap();
+        db.create_index("status").unwrap();
+        db.create_index("age").unwrap();
+        db.set("user.1", br#"{"status":"idle","age":1}"#).unwrap();
+        assert_eq!(db.index_lookup("status", br#""idle""#).unwrap(), vec!["user.1".to_string()]);
+
+        let ops = vec![
+            Op::Set {
+                key: b"user.1".to_vec(),
+                value: br#"{"status":"active","age":2}"#.to_vec().into_boxed_slice(),
+            },
+            Op::Set {
+                key: b"user.1".to_vec(),
+                value: br#"{"status":"active","age":3}"#.to_vec().into_boxed_slice(),
+            },
+            Op::Set {
+                key: b"user.1.coins".to_vec(),
+                value: b"10".to_vec().into_boxed_slice(),
+            },
+        ];
+        db.batch(ops).unwrap();
+
+        assert!(db.index_lookup("status", br#""idle""#).unwrap().is_empty());
+        assert_eq!(db.index_lookup("status", br#""active""#).unwrap(), vec!["user.1".to_string()]);
+        assert_eq!(db.index_lookup("age", b"3").unwrap(), vec!["user.1".to_string()]);
+        assert!(db.index_lookup("age", b"1").unwrap().is_empty());
+        assert!(db.index_lookup("age", b"2").unwrap().is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn prefix_scan_and_all_include_ancestor_leaves() {
+        let dir = tmpdir("prefixscan");
+        let path = dir.join("p.db");
+        let mut db = Engine::open(&path, opts()).unwrap();
+        db.set("user.1", br#"{"name":"a","age":30}"#).unwrap();
+        db.set("user.10", br#"{"name":"b","age":40}"#).unwrap();
+        db.set("user.2", br#"{"name":"c","age":50}"#).unwrap();
+        db.set("post.1", br#"{"name":"p"}"#).unwrap();
+
+        let (page, cursor) = db.scan_page(Some("user.1"), "", 100).unwrap();
+        assert_eq!(page.len(), 2);
+        assert_eq!(cursor, "");
+        assert_eq!(page[0].0, "user.1");
+        assert_eq!(page[1].0, "user.10");
+
+        let all = db.all(Some("user.1.name")).unwrap();
+        assert_eq!(all.len(), 1);
+        assert_eq!(all[0].0, "user.1.name");
+        assert_eq!(all[0].1, br#""a""#.to_vec());
+
+        let (page, cursor) = db.scan_page(Some("user.1"), "", 1).unwrap();
+        assert_eq!(page.len(), 1);
+        assert_eq!(cursor, "user.1");
+        let (page, cursor) = db.scan_page(Some("user.1"), &cursor, 10).unwrap();
+        assert_eq!(page.len(), 1);
+        assert_eq!(page[0].0, "user.10");
+        assert_eq!(cursor, "");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn deleting_prefix_removes_descendant_index_entries() {
+        let dir = tmpdir("indexdeleteprefix");
+        let path = dir.join("idp.db");
+        let mut db = Engine::open(&path, opts()).unwrap();
+        db.create_index("status").unwrap();
+        db.set("user.1", br#"{"status":"active"}"#).unwrap();
+        db.set("user.2", br#"{"status":"active"}"#).unwrap();
+        db.set("user.3", br#"{"status":"idle"}"#).unwrap();
+        assert_eq!(db.index_lookup("status", br#""active""#).unwrap().len(), 2);
+
+        assert!(db.delete("user").unwrap());
+        assert!(db.index_lookup("status", br#""active""#).unwrap().is_empty());
+        assert!(db.index_lookup("status", br#""idle""#).unwrap().is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
 
     #[test]
     fn stats_observability_fields() {

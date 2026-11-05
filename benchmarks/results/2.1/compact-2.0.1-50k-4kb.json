@@ -1,0 +1,17 @@
+{
+  "package": "@sexfy/spectre.db@2.0.1 (published, MSVC prebuild)",
+  "version": "2.0.1",
+  "native": true,
+  "n": 50000,
+  "valueBytes": 4096,
+  "insertMs": 1084.9242,
+  "insertOps": 46086,
+  "compactMs": 1086.5237,
+  "rssBefore": 372912128,
+  "rssAfter": 377700352,
+  "rssPeak": 1016307712,
+  "rssPeakDelta": 643395584,
+  "diskBefore": 205839978,
+  "diskAfter": 411628976,
+  "entries": 50000
+}

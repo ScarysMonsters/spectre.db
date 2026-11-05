@@ -32,7 +32,7 @@ for (const entry of fs.readdirSync(npmDir)) {
   writeJson(pkgPath, pkg);
 }
 
-for (const crate of ['spectre-db-core', 'spectre-db-napi']) {
+for (const crate of ['core', 'napi']) {
   const cargoPath = path.join(root, 'crates', crate, 'Cargo.toml');
   const text = fs.readFileSync(cargoPath, 'utf8').replace(/^version = "[^"]+"/m, `version = "${next}"`);
   fs.writeFileSync(cargoPath, text);

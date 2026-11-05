@@ -163,8 +163,8 @@ spectre.db/
 ├── index.d.ts             ← TypeScript types
 ├── fallback/              ← frozen v1.1.0 JS engine (no v2 format support)
 ├── crates/
-│   ├── spectre-db-core/   ← pure Rust engine (store, formats, WAL, segments, crypto)
-│   └── spectre-db-napi/   ← napi-rs bindings
+│   ├── core/   ← pure Rust engine (store, formats, WAL, segments, crypto)
+│   └── napi/   ← napi-rs bindings
 ├── npm/                   ← per-platform binary packages (optionalDependencies)
 ├── scripts/               ← build.sh, smoke.js, check-versions.js
 ├── tests/                 ← Jest suites (native, fallback, fault injection)

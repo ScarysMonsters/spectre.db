@@ -11,7 +11,7 @@ const { Database, Table, hasNativeEngine, version } = require('@sexfy/spectre.db
 | `Database` | class | The database handle |
 | `Table` | class | Namespaced view (created via `db.table(name)`) |
 | `hasNativeEngine` | boolean | `true` when the Rust addon is loaded |
-| `version` | string | Package version (`'2.0.1'`) |
+| `version` | string | Package version (`'2.1.0'`) |
 
 TypeScript definitions are shipped in `index.d.ts`.
 
@@ -423,7 +423,7 @@ v1.1.0-shaped stats.
 | Field | Description |
 |---|---|
 | `driver` | Always `'spectre.db'` |
-| `engine` | Engine string, e.g. `'spectre.db/2.0.1 (rust)'` |
+| `engine` | Engine string, e.g. `'spectre.db/2.1.0 (rust)'` |
 | `format` | `'v2'` or `'json'` |
 | `compress` / `compression` | Compression flags |
 | `encrypted` / `snapshotEncrypted` | Encryption flags |

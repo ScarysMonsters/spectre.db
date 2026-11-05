@@ -1,0 +1,22 @@
+{
+  "package": "@sexfy/spectre.db@2.0.1 (published, MSVC prebuild)",
+  "version": "2.0.1",
+  "native": true,
+  "n": 100000,
+  "updates": 10000,
+  "indexPaths": ["status", "group", "region", "tier", "score"],
+  "insertPlainMs": 593.0018,
+  "insertPlainOps": 168634,
+  "insertIndexedMs": 380231.6915,
+  "insertIndexedOps": 263,
+  "updateMs": 16315.7881,
+  "updateOps": 613,
+  "lookupCount": 10000,
+  "lookupMs": 4.8982,
+  "rangeCount": 1000,
+  "rangeMs": 3.773,
+  "plainBytes": 43836015,
+  "indexedBytes": 46142741,
+  "plainEntries": 600000,
+  "indexedEntries": 600000
+}

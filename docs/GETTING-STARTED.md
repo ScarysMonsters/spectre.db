@@ -19,7 +19,7 @@ Check which engine is active:
 ```js
 const { hasNativeEngine, version } = require('@sexfy/spectre.db');
 
-console.log(version);          // '2.0.1'
+console.log(version);          // '2.1.0'
 console.log(hasNativeEngine);  // true when the Rust addon is loaded
 ```
 
