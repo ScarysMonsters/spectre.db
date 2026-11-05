@@ -631,6 +631,7 @@ impl Engine {
 
 
         self.wal_append_batch(&ops)?;
+        let track_indexes = !self.indexes.is_empty();
         let mut touched: BTreeSet<Vec<u8>> = BTreeSet::new();
         let mut removed: BTreeSet<Vec<u8>> = BTreeSet::new();
         for op in ops {
@@ -638,16 +639,20 @@ impl Engine {
                 Op::Set { key, value } => {
                     self.store.set(&key, value);
                     self.dirty.insert(key.clone());
-                    touched.insert(key);
+                    if track_indexes {
+                        touched.insert(key);
+                    }
                 }
                 Op::Del { key } => {
-                    removed.insert(key.clone());
-                    if !self.indexes.is_empty() {
+                    if track_indexes {
+                        removed.insert(key.clone());
                         removed.extend(self.store.descendant_keys(&key));
                     }
                     self.store.delete(&key);
                     self.dirty.insert(key.clone());
-                    touched.insert(key);
+                    if track_indexes {
+                        touched.insert(key);
+                    }
                 }
                 Op::Clear => {
                     self.store.clear();
@@ -663,16 +668,20 @@ impl Engine {
                             Op::Set { key, value } => {
                                 self.store.set(&key, value);
                                 self.dirty.insert(key.clone());
-                                touched.insert(key);
+                                if track_indexes {
+                                    touched.insert(key);
+                                }
                             }
                             Op::Del { key } => {
-                                removed.insert(key.clone());
-                                if !self.indexes.is_empty() {
+                                if track_indexes {
+                                    removed.insert(key.clone());
                                     removed.extend(self.store.descendant_keys(&key));
                                 }
                                 self.store.delete(&key);
                                 self.dirty.insert(key.clone());
-                                touched.insert(key);
+                                if track_indexes {
+                                    touched.insert(key);
+                                }
                             }
                             _ => {}
                         }
@@ -680,7 +689,7 @@ impl Engine {
                 }
             }
         }
-        if !self.indexes.is_empty() {
+        if track_indexes && !self.indexes.is_empty() {
             for key in &removed {
                 self.index_remove_key(key);
             }

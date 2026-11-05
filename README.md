@@ -109,26 +109,40 @@ Measured on the same harness before/after; raw JSON in [`benchmarks/results/2.1/
 | Compaction time (50k × 4 KB) | 1 086 ms | 858 ms | **-21%** |
 | Indexed insert overhead vs no index | ×641 | ×1.85 | — |
 
-### Standard workload baseline (2.0.1)
+### Standard workloads — 2.1.0
 
-Median of 3 runs on Windows, Node.js 26.4.0, 8 logical cores, 100,000 keys, ~185-byte JSON values. SQLite uses WAL + `synchronous=NORMAL`; LMDB uses its default sync mode; spectre.db runs the local 2.0.1 build with `autoSave: 0` (no background compaction). Higher is better (ops/s).
+Median of 3 runs on Windows, Node.js 26.4.0, 8 logical cores, 100,000 keys, ~185-byte JSON values. SQLite uses WAL + `synchronous=NORMAL`; LMDB uses its default sync mode; spectre.db runs the local 2.1.0 build with `autoSave: 0` (no background compaction). Higher is better (ops/s).
 
 | Workload | spectre.db | SQLite | LMDB | Winner |
 |---|---:|---:|---:|---|
-| write (single op) | **117 176** | 20 060 | 5 298 | spectre.db |
-| write (batch of 1,000) | **244 365** | 212 357 | 86 803 | spectre.db |
-| read (random) | **640 771** | 136 394 | 557 396 | spectre.db |
-| read (batch of 1,000) | **1 070 848** | 155 128 | 314 816 | spectre.db |
-| scan (full prefix) | 1 404 492 | 910 700 | **1 551 109** | LMDB |
-| count (queries/s, 100k keys) | **276** | 118 | 137 | spectre.db |
-| count (entries/s) | **27 648 827** | 11 836 197 | 13 662 266 | spectre.db |
-| mixed 80/20 | **283 742** | 54 951 | 24 626 | spectre.db |
-| delete (batched) | **414 003** | 231 450 | 138 813 | spectre.db |
+| write (single op) | **117 311** | 21 268 | 5 906 | spectre.db |
+| write (batch of 1,000) | **258 319** | 246 759 | 108 997 | spectre.db |
+| read (random) | **651 004** | 174 307 | 595 561 | spectre.db |
+| read (batch of 1,000) | **1 056 408** | 174 446 | 333 214 | spectre.db |
+| scan (full prefix) | 1 462 277 | 905 075 | **1 465 341** | LMDB (0.2%) |
+| count (queries/s, 100k keys) | **288** | 118 | 141 | spectre.db |
+| count (entries/s) | **28 814 126** | 11 848 145 | 14 115 402 | spectre.db |
+| mixed 80/20 | **292 157** | 59 807 | 26 334 | spectre.db |
+| delete (batched) | **376 926** | 233 482 | 162 801 | spectre.db |
 | on-disk size | 21.5 MB | 21.1 MB | 35.8 MB | — |
 
-spectre.db wins 7/8 workloads against LMDB and 7/8 overall. The remaining gap is full scans (1.40M vs 1.55M rows/s, ~10%); scan results flip with run-to-run variance and were at parity on previous runs. In `durability: "durable"` mode, LMDB keeps the single-write and mixed-write lead (per-op fsync vs. LMDB's asynchronous flush), while spectre.db wins bulk reads, count, delete, batch ingestion and stays within ~10% on scans.
+spectre.db wins 7/8 workloads against LMDB and 7/8 overall. The full scan is 0.2% behind LMDB (statistical parity) and flips with run-to-run variance. In `durability: "durable"` mode, LMDB keeps the single-write and mixed-write lead (per-op fsync vs. LMDB's asynchronous flush), while spectre.db wins bulk reads, count, delete and batch ingestion.
 
-Compared to 2.0.0 on the same harness: `get` 268k → 641k ops/s (+2.4x), `scan` 577k → 1.40M rows/s (+2.4x), `count` 2.4M → 27.6M entries/s (+11x).
+### 2.0.1 → 2.1.0
+
+| Workload | 2.0.1 | 2.1.0 | Delta |
+|---|---:|---:|---:|
+| write (single op) | 117 176 | 117 311 | +0.1% |
+| write (batch of 1,000) | 244 365 | 258 319 | +5.7% |
+| read (random) | 640 771 | 651 004 | +1.6% |
+| read (batch of 1,000) | 1 070 848 | 1 056 408 | -1.3% |
+| scan (full prefix) | 1 404 492 | 1 462 277 | +4.1% |
+| count (queries/s) | 276 | 288 | +4.3% |
+| count (entries/s) | 27 648 827 | 28 814 126 | +4.2% |
+| mixed 80/20 | 283 742 | 292 157 | +3.0% |
+| delete (batched) | 414 003 | 376 926 | -8.9%* |
+
+\* Delete run variance: a second 2.1.0 run measured 418 458 ops/s (+1.1%). Standard workloads are otherwise flat to +6%; the large gains are on index maintenance, prefix scans and compaction (tables above). The 2.0.1 baseline is the published MSVC prebuild; 2.1.0 is the local GNU build, so small deltas include toolchain and thermal variance.
 
 Raw results: [`benchmarks/results/`](benchmarks/results/). Reproduce:
 
