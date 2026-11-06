@@ -148,6 +148,18 @@ db.delete('temp.data'); // true
 db.delete('temp.data'); // false
 ```
 
+### `deleteMany(keys)`
+
+Deletes an array of keys in a single native batch and returns one boolean per
+key (`true` when that key existed). Faster than looping over `delete()` for
+bulk cleanup.
+
+```js
+db.deleteMany(['temp.1', 'temp.2', 'missing']); // [true, true, false]
+```
+
+Requires the native engine; the JavaScript fallback maps over `delete()`.
+
 ### `add(key, n)` / `sub(key, n)`
 
 Adds/subtracts a finite number. Missing keys start at `0`; non-number values

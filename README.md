@@ -115,34 +115,34 @@ Median of 3 runs on Windows, Node.js 26.4.0, 8 logical cores, 100,000 keys, ~185
 
 | Workload | spectre.db | SQLite | LMDB | Winner |
 |---|---:|---:|---:|---|
-| write (single op) | **117 311** | 21 268 | 5 906 | spectre.db |
-| write (batch of 1,000) | **258 319** | 246 759 | 108 997 | spectre.db |
-| read (random) | **651 004** | 174 307 | 595 561 | spectre.db |
-| read (batch of 1,000) | **1 056 408** | 174 446 | 333 214 | spectre.db |
-| scan (full prefix) | 1 462 277 | 905 075 | **1 465 341** | LMDB (0.2%) |
-| count (queries/s, 100k keys) | **288** | 118 | 141 | spectre.db |
-| count (entries/s) | **28 814 126** | 11 848 145 | 14 115 402 | spectre.db |
-| mixed 80/20 | **292 157** | 59 807 | 26 334 | spectre.db |
-| delete (batched) | **376 926** | 233 482 | 162 801 | spectre.db |
+| write (single op) | **108 104** | 21 775 | 5 829 | spectre.db |
+| write (batch of 1,000) | **272 581** | 267 826 | 106 055 | spectre.db |
+| read (random) | **655 303** | 173 883 | 591 864 | spectre.db |
+| read (batch of 1,000) | **1 061 829** | 176 925 | 322 415 | spectre.db |
+| scan (full prefix) | 1 484 578 | 937 937 | **1 512 196** | LMDB (1.8%) |
+| count (queries/s, 100k keys) | **298** | 122 | 141 | spectre.db |
+| count (entries/s) | **29 794 714** | 12 216 068 | 14 053 905 | spectre.db |
+| mixed 80/20 | **289 964** | 59 583 | 28 062 | spectre.db |
+| delete (batched) | **581 126** | 236 320 | 160 831 | spectre.db |
 | on-disk size | 21.5 MB | 21.1 MB | 35.8 MB | — |
 
-spectre.db wins 7/8 workloads against LMDB and 7/8 overall. The full scan is 0.2% behind LMDB (statistical parity) and flips with run-to-run variance. In `durability: "durable"` mode, LMDB keeps the single-write and mixed-write lead (per-op fsync vs. LMDB's asynchronous flush), while spectre.db wins bulk reads, count, delete and batch ingestion.
+spectre.db wins 7/8 workloads against LMDB. The full scan is 1.8% behind LMDB and flips with run-to-run variance. `deleteMany()` plus batch flag computation recovered bulk delete: the previous generic `transaction` path was paying one existence check and 1,000 JavaScript operation objects per batch.
 
 ### 2.0.1 → 2.1.0
 
 | Workload | 2.0.1 | 2.1.0 | Delta |
 |---|---:|---:|---:|
-| write (single op) | 117 176 | 117 311 | +0.1% |
-| write (batch of 1,000) | 244 365 | 258 319 | +5.7% |
-| read (random) | 640 771 | 651 004 | +1.6% |
-| read (batch of 1,000) | 1 070 848 | 1 056 408 | -1.3% |
-| scan (full prefix) | 1 404 492 | 1 462 277 | +4.1% |
-| count (queries/s) | 276 | 288 | +4.3% |
-| count (entries/s) | 27 648 827 | 28 814 126 | +4.2% |
-| mixed 80/20 | 283 742 | 292 157 | +3.0% |
-| delete (batched) | 414 003 | 376 926 | -8.9%* |
+| write (single op) | 117 176 | 108 104 | -7.7%* |
+| write (batch of 1,000) | 244 365 | 272 581 | +11.5% |
+| read (random) | 640 771 | 655 303 | +2.3% |
+| read (batch of 1,000) | 1 070 848 | 1 061 829 | -0.8% |
+| scan (full prefix) | 1 404 492 | 1 484 578 | +5.7% |
+| count (queries/s) | 276 | 298 | +8.0% |
+| count (entries/s) | 27 648 827 | 29 794 714 | +7.8% |
+| mixed 80/20 | 283 742 | 289 964 | +2.2% |
+| delete (batched) | 414 003 | 581 126 | **+40.4%** |
 
-\* Delete run variance: a second 2.1.0 run measured 418 458 ops/s (+1.1%). Standard workloads are otherwise flat to +6%; the large gains are on index maintenance, prefix scans and compaction (tables above). The 2.0.1 baseline is the published MSVC prebuild; 2.1.0 is the local GNU build, so small deltas include toolchain and thermal variance.
+\* Single-write variance: an earlier 2.1.0 run measured 117 311 ops/s (+0.1%); the difference is toolchain/thermal. Delete uses the new native `deleteMany()` path. The large structural gains remain index maintenance (×355 insert, ×75 update), prefix scans (up to ×95) and compaction (-35% peak RSS), documented above.
 
 Raw results: [`benchmarks/results/`](benchmarks/results/). Reproduce:
 
@@ -266,6 +266,7 @@ db.get('users.1.name')              // → value or null
 db.getMany(['users.1', 'users.2'])  // → values in order (batch lookup)
 db.setMany([['users.1', 'Alice']])  // → bulk write
 db.set('users.1.name', 'Alice')     // → value
+db.deleteMany(['users.1.name', 'users.2.name']) // → true/false per key
 db.delete('users.1.name')           // → true / false
 db.has('users.1.name')              // → true / false
 db.add('users.1.coins', 100)        // → new value

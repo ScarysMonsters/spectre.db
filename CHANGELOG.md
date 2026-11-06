@@ -18,10 +18,14 @@ Performance and memory release. No on-disk format change and no public API break
 - Full and delta compaction share immutable `Arc` values with the live store, lowering peak RSS during compaction.
 - WAL buffers reserve the exact frame size before encoding large values.
 
+### Added
+- db.deleteMany(keys) — bulk delete in a single native call.
+
 ### Benchmarks (Windows, Node 26, 100k docs, 5 indexes)
 - Indexed insert: **263 → 93,366 ops/s** in the 100k run (up to **355x**).
 - Indexed update: **613 → 46,174 ops/s** (up to **75x**); P50 **319 → 19.6 µs**, P95 **702 → 25.5 µs**, P99 **1,025 → 40.8 µs** (100k run).
 - Indexed insert overhead vs no index: from **×641** to **×1.85** depending on run and cardinality.
+- Bulk delete: **414k → 581k ops/s (+40%)** with deleteMany(); standard workloads are otherwise flat to +11.5%, except single-write toolchain/thermal variance.
 - Prefix scans on 1M keys: 0.1% prefix **57.2 → 0.60 ms** (95x), 1% **37.2 → 7.72 ms** (4.8x), 10% **151 → 65.8 ms** (2.3x).
 - Forced-segment compaction (50k × 4 KB): peak RSS delta **643 → 420 MB** (-34.7%), compaction time **1,086 → 858 ms** (-21%).
 
@@ -30,7 +34,7 @@ Performance and memory release. No on-disk format change and no public API break
 - Added reproducible focused benchmarks: `benchmarks/index-bench.js`, `benchmarks/prefix-bench.js`, `benchmarks/compact-bench.js`, with raw results in `benchmarks/results/2.1/`.
 
 ### Tests
-- 86 Rust core tests, 35 Jest tests, 9 fallback tests, smoke test.
+- 87 Rust core tests, 35 Jest tests, 9 fallback tests, smoke test.
 
 ## 2.0.1 (2026-11-03)
 

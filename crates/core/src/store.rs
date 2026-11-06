@@ -127,8 +127,9 @@ impl Store {
     }
 
 
-    fn remove_with_descendants(&mut self, key: &[u8]) -> bool {
-        let mut removed = self.remove_entry(key);
+    fn remove_with_descendants_report(&mut self, key: &[u8]) -> (bool, bool) {
+        let exact = self.remove_entry(key);
+        let mut any = exact;
         let (s, e) = descendants_range(key);
         let doomed: Vec<Vec<u8>> = self
             .map
@@ -137,9 +138,13 @@ impl Store {
             .collect();
         for d in &doomed {
             self.remove_entry(d);
-            removed = true;
+            any = true;
         }
-        removed
+        (exact, any)
+    }
+
+    fn remove_with_descendants(&mut self, key: &[u8]) -> bool {
+        self.remove_with_descendants_report(key).1
     }
 
     pub fn descendant_keys(&self, key: &[u8]) -> Vec<Vec<u8>> {
@@ -279,16 +284,21 @@ impl Store {
 
 
     pub fn delete(&mut self, key: &[u8]) -> bool {
-        if self.remove_with_descendants(key) {
-            return true;
+        self.delete_with_exact(key).1
+    }
+
+    pub fn delete_with_exact(&mut self, key: &[u8]) -> (bool, bool) {
+        let (exact, any) = self.remove_with_descendants_report(key);
+        if any {
+            return (exact, true);
         }
         if let Some(alen) = self.ancestor_leaf(key) {
             let ancestor = self.map.get(&key[..alen]).unwrap();
             if is_envelope(ancestor) {
-                return false;
+                return (exact, false);
             }
 
-            let Some(mut root) = parse_value(ancestor) else { return false };
+            let Some(mut root) = parse_value(ancestor) else { return (exact, false) };
             let parts: Vec<&[u8]> = key[alen + 1..].split(|&b| b == b'.').collect();
             let mut cur = &mut root;
             for (i, part) in parts.iter().enumerate() {
@@ -300,22 +310,22 @@ impl Store {
                         _ => false,
                     };
                     if !existed {
-                        return false;
+                        return (exact, false);
                     }
                 } else {
                     match cur.get_mut(&part_str) {
                         Some(Value::Object(_)) => cur = cur.get_mut(&part_str).unwrap(),
-                        _ => return false,
+                        _ => return (exact, false),
                     }
                 }
             }
             if let Ok(bytes) = serde_json::to_vec(&root) {
                 self.insert_entry(key[..alen].to_vec(), bytes.into_boxed_slice());
-                return true;
+                return (exact, true);
             }
-            return false;
+            return (exact, false);
         }
-        false
+        (exact, false)
     }
 
     pub fn clear(&mut self) {

@@ -71,6 +71,10 @@ describe('basic CRUD (both engines)', () => {
     for (const row of db.scanSync({ prefix: 'user.' })) ids.push(row.ID);
     expect(ids.sort()).toEqual(['user.1', 'user.2']);
 
+    expect(db.deleteMany(['user.1', 'missing'])).toEqual([true, false]);
+    expect(db.get('user.1')).toBeNull();
+    expect(db.get('user.2')).toEqual({ name: 'b' });
+
     await db.close();
     cleanup(dir);
   });

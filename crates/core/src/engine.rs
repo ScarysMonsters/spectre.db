@@ -596,6 +596,15 @@ impl Engine {
         }
     }
 
+    pub fn delete_many(&mut self, keys: &[String]) -> Result<Vec<bool>> {
+        self.check_open()?;
+        let ops = keys
+            .iter()
+            .map(|key| Op::Del { key: key.as_bytes().to_vec() })
+            .collect();
+        self.batch(ops)
+    }
+
     pub fn clear(&mut self) -> Result<()> {
         self.check_open()?;
         self.store.clear();
@@ -611,32 +620,16 @@ impl Engine {
 
     pub fn batch(&mut self, ops: Vec<Op>) -> Result<Vec<bool>> {
         self.check_open()?;
-        for op in &ops {
-            if let Op::Set { key, value } = op {
-                let k = std::str::from_utf8(key)
-                    .map_err(|_| SpectreError::invalid_key("Non-UTF-8 key in batch"))?;
-                validator::validate_key_fast(k)?;
-                validator::validate_value_size(value.len())?;
-            }
-        }
-
-        let mut flags = Vec::with_capacity(ops.len());
-        for op in &ops {
-            match op {
-                Op::Set { .. } => flags.push(true),
-                Op::Del { key } => flags.push(self.store.contains(key)),
-                _ => flags.push(false),
-            }
-        }
-
-
+        validate_batch_ops(&ops)?;
         self.wal_append_batch(&ops)?;
+        let mut flags = Vec::with_capacity(ops.len());
         let track_indexes = !self.indexes.is_empty();
         let mut touched: BTreeSet<Vec<u8>> = BTreeSet::new();
         let mut removed: BTreeSet<Vec<u8>> = BTreeSet::new();
         for op in ops {
             match op {
                 Op::Set { key, value } => {
+                    flags.push(true);
                     self.store.set(&key, value);
                     self.dirty.insert(key.clone());
                     if track_indexes {
@@ -648,13 +641,15 @@ impl Engine {
                         removed.insert(key.clone());
                         removed.extend(self.store.descendant_keys(&key));
                     }
-                    self.store.delete(&key);
+                    let (exact, _) = self.store.delete_with_exact(&key);
+                    flags.push(exact);
                     self.dirty.insert(key.clone());
                     if track_indexes {
                         touched.insert(key);
                     }
                 }
                 Op::Clear => {
+                    flags.push(false);
                     self.store.clear();
                     self.dirty.clear();
                     self.dirty_all = true;
@@ -663,6 +658,7 @@ impl Engine {
                     }
                 }
                 Op::Batch(sub) => {
+                    flags.push(false);
                     for s in sub {
                         match s {
                             Op::Set { key, value } => {
@@ -1611,6 +1607,27 @@ fn write_file_atomic(
             Err(e)
         }
     }
+}
+
+fn validate_batch_ops(ops: &[Op]) -> Result<()> {
+    for op in ops {
+        match op {
+            Op::Set { key, value } => {
+                let text = std::str::from_utf8(key)
+                    .map_err(|_| SpectreError::invalid_key("Non-UTF-8 key in batch"))?;
+                validator::validate_key_fast(text)?;
+                validator::validate_value_size(value.len())?;
+            }
+            Op::Del { key } => {
+                let text = std::str::from_utf8(key)
+                    .map_err(|_| SpectreError::invalid_key("Non-UTF-8 key in batch"))?;
+                validator::validate_key_fast(text)?;
+            }
+            Op::Batch(sub) => validate_batch_ops(sub)?,
+            Op::Clear => {}
+        }
+    }
+    Ok(())
 }
 
 fn push_json_string(out: &mut String, bytes: &[u8]) {

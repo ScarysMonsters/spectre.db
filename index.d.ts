@@ -82,6 +82,7 @@ declare module '@sexfy/spectre.db' {
     getMany(keys: string[]): any[];
     setMany(entries: Array<[string, any]>): any[];
     delete(key: string): boolean;
+    deleteMany(keys: string[]): boolean[];
     add(key: string, n: number): number;
     sub(key: string, n: number): number;
     push(key: string, value: any): number;

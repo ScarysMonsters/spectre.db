@@ -315,6 +315,19 @@ class Database extends EventEmitter {
     return deleted;
   }
 
+  deleteMany(keys) {
+    this._assertOpen();
+    if (!Array.isArray(keys)) {
+      throw new TypeError('[spectre.db] deleteMany() expects an array of keys');
+    }
+    if (this._engineKind === 'fallback') return Promise.all(keys.map((key) => this.delete(key)));
+    const flags = ncall(this._engine, 'deleteMany', keys);
+    for (let i = 0; i < keys.length; i++) {
+      if (flags[i]) this.emit('change', { type: 'delete', key: keys[i] });
+    }
+    return flags;
+  }
+
   add(key, n) {
     if (typeof n !== 'number' || !Number.isFinite(n)) throw new TypeError('add() requires a finite number');
     const cur = this.get(key) ?? 0;

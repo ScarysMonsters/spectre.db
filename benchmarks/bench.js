@@ -158,6 +158,10 @@ async function createSpectre(dir) {
       return count;
     },
     batchDelete: async (keys) => {
+      if (typeof db.deleteMany === 'function') {
+        db.deleteMany(keys);
+        return;
+      }
       await db.transaction(keys.map((key) => ({ type: 'delete', key })));
     },
     flushForSize: async () => {

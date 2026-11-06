@@ -182,6 +182,11 @@ impl SpectreEngine {
     }
 
     #[napi]
+    pub fn delete_many(&self, keys: Vec<String>) -> napi::Result<Vec<bool>> {
+        lock(&self.inner).delete_many(&keys).map_err(to_napi_err)
+    }
+
+    #[napi]
     pub fn clear(&self) -> napi::Result<()> {
         lock(&self.inner).clear().map_err(to_napi_err)
     }

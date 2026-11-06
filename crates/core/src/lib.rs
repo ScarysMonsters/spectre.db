@@ -780,6 +780,26 @@ mod v2_tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    #[test]
+    fn delete_many_flags_and_index_cleanup() {
+        let dir = tmpdir("deletemany");
+        let path = dir.join("dm.db");
+        let mut db = Engine::open(&path, opts()).unwrap();
+        db.create_index("status").unwrap();
+        db.set("user.1", br#"{"status":"active"}"#).unwrap();
+        db.set("user.2", br#"{"status":"idle"}"#).unwrap();
+        let flags = db
+            .delete_many(&["user.1".to_string(), "missing".to_string()])
+            .unwrap();
+        assert_eq!(flags, vec![true, false]);
+        assert!(db.index_lookup("status", br#""active""#).unwrap().is_empty());
+        assert_eq!(
+            db.index_lookup("status", br#""idle""#).unwrap(),
+            vec!["user.2".to_string()]
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
 
     #[test]
     fn stats_observability_fields() {
