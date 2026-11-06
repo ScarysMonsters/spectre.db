@@ -108,33 +108,31 @@ jobs:
           package-manager-cache: false
       - name: Use latest npm
         run: npm install -g npm@latest
-      - name: Clear setup-node auth placeholder
-        run: |
-          npm config delete "//registry.npmjs.org/:_authToken" || true
-          echo "NODE_AUTH_TOKEN=" >> "$GITHUB_ENV"
       - name: Check versions
         run: node scripts/check-versions.js
       - name: Publish platform packages
-        env:
-          NODE_AUTH_TOKEN: ''
         run: |
+          set -euo pipefail
+
           for d in npm/*/; do
             name=$(node -p "require('./$d/package.json').name")
             version=$(node -p "require('./$d/package.json').version")
-            if [ "$(npm view "$name" version 2>/dev/null)" = "$version" ]; then
+
+            if [ "$(npm view "$name" version 2>/dev/null || true)" = "$version" ]; then
               echo "skip $name@$version (already published)"
             else
-              npm publish "$d" --access public --provenance
+              npm publish "$d" --access public
             fi
           done
       - name: Publish root package
-        env:
-          NODE_AUTH_TOKEN: ''
         run: |
+          set -euo pipefail
+
           name=$(node -p "require('./package.json').name")
           version=$(node -p "require('./package.json').version")
-          if [ "$(npm view "$name" version 2>/dev/null)" = "$version" ]; then
+
+          if [ "$(npm view "$name" version 2>/dev/null || true)" = "$version" ]; then
             echo "skip $name@$version (already published)"
           else
-            npm publish --access public --provenance
+            npm publish --access public
           fi
