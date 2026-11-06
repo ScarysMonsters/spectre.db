@@ -50,7 +50,7 @@ jobs:
             target: x86_64-apple-darwin
             pkg: spectre-db-darwin-x64
             artifact: libspectre_db_napi.dylib
-          - os: macos-14
+          - os: macos-latest
             target: aarch64-apple-darwin
             pkg: spectre-db-darwin-arm64
             artifact: libspectre_db_napi.dylib

@@ -58,7 +58,7 @@ Pushing the `v*` tag triggers the **Release** workflow:
    | `x86_64-unknown-linux-gnu` | ubuntu-latest | `libspectre_db_napi.so` |
    | `x86_64-unknown-linux-musl` | ubuntu-latest (cargo-zigbuild + Zig) | `libspectre_db_napi.so` |
    | `x86_64-apple-darwin` | macos-latest | `libspectre_db_napi.dylib` |
-   | `aarch64-apple-darwin` | macos-14 | `libspectre_db_napi.dylib` |
+   | `aarch64-apple-darwin` | macos-latest | `libspectre_db_napi.dylib` |
    | `x86_64-pc-windows-msvc` | windows-latest | `spectre_db_napi.dll` |
 
    Each artifact is copied into `npm/<package>/spectre.db-rs.node` and uploaded.
