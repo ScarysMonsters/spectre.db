@@ -745,4 +745,27 @@ mod tests {
         assert!(ops.is_empty());
         assert_eq!(warns, 1);
     }
+
+    #[test]
+    fn decoders_never_panic_on_random_input() {
+        let mut seed = 0x1234_5678_9ABC_DEF0u64;
+        let mut next = || {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            seed
+        };
+        for len in 0..=512usize {
+            let mut bytes = vec![0u8; len];
+            for b in bytes.iter_mut() {
+                *b = (next() & 0xFF) as u8;
+            }
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                let _ = replay_wal(&bytes);
+                let _ = load_snapshot(&bytes, None);
+                let _ = decode_manifest(&bytes);
+            }));
+            assert!(result.is_ok(), "decoder panicked on random input of {} bytes", len);
+        }
+    }
 }

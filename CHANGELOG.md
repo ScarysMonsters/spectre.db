@@ -16,15 +16,16 @@ spectre.db is the same project as spectre.db 1.x by ScarysMonsters, rewritten in
 - **Background compaction diagnostics**: timer failures emit `warn` (or console) instead of being swallowed; `close()` is retryable if the native close fails.
 - **Fallback diagnostics**: `db.engine` reports `native`/`fallback`, `db.nativeLoadError` exposes the native load failure, and a `warn` event is emitted when the JS fallback is selected implicitly.
 - **Snapshot decode guard**: a decompressed snapshot body shorter than its 8-byte count header now fails as corrupted instead of panicking.
+- **Decoder fuzz smoke test**: deterministic random inputs up to 512 bytes are passed through the WAL, snapshot and manifest decoders under `catch_unwind`; any panic fails the suite.
 - **Lock ownership**: a lock file carrying our own PID is only treated as stale when this process is not holding that path. This fixes stale PID 1 locks after container restarts without deleting an active same-process lock.
 - **Differential tests**: native/fallback tests now cover CRUD, dot-path values, bulk helpers, `all()`, deletes, and a seeded 200-operation nested mutation sequence.
 - **Migration safety**: `migrate()` copies the old snapshot and WAL to `*.migrate-bak` before removing them, so an interrupted format migration retains a recovery point.
 - **NFC keys**: the JS API normalizes string keys to Unicode NFC (including `Table` keys, prefixes, scans, cursors, bulk helpers and transactions), matching the documented behavior.
 - **Sensitive-key docs**: README, API and ENCRYPTION now document segment-based matching (`user.password` is encrypted; `user.passwordHash` is not).
 - **Compaction benchmark**: `compact-bench.js` now uses incompressible random values by default (`COMPACT_VALUE_MODE=repeat` for the old behavior), so RSS/disk figures are not distorted by compression.
-- Tests: 96 Rust core, 40 Jest, 11 fallback, 9 fault-injection, smoke OK.
+- Tests: 97 Rust core, 40 Jest, 11 fallback, 9 fault-injection, smoke OK.
 
-Still to address from the review: OS-level advisory locking and blocking constructor/`compactAsync` legacy contention, decoder fuzzing, index/query edge cases, and the synthetic standard benchmark values.
+Still to address from the review: OS-level advisory locking and blocking constructor/`compactAsync` legacy contention, full cargo-fuzz coverage, index/query edge cases, and the synthetic standard benchmark values.
 
 ## 2.1.1 (2026-11-09)
 
