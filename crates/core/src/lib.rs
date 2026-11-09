@@ -163,6 +163,10 @@ mod tests {
         assert!(!dir.join("m.snapshot").exists());
         assert!(!dir.join("m.wal").exists());
         assert!(dir.join("m.spdb").exists());
+        assert!(std::fs::read_dir(&dir)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .any(|e| e.file_name().to_string_lossy().ends_with(".migrate-bak")));
         db.close().unwrap();
 
         let mut db = Engine::open(&path, opts()).unwrap();
@@ -174,6 +178,10 @@ mod tests {
 
         let mut db = Engine::open(&path, opts()).unwrap();
         db.migrate(FormatMode::Json).unwrap();
+        assert!(std::fs::read_dir(&dir)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .any(|e| e.file_name().to_string_lossy().contains(".spdb.migrate-bak")));
         db.close().unwrap();
         let mut db = Engine::open(&path, opts()).unwrap();
         assert_eq!(db.mode(), FormatMode::Json);

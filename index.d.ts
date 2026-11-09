@@ -77,6 +77,8 @@ declare module '@sexfy/spectre.db' {
   export class Database {
     constructor(filePath?: string, options?: SpectreOptions);
     get ready(): Promise<Database>;
+    readonly engine: 'native' | 'fallback';
+    readonly nativeLoadError: string | null;
     get(key: string): any;
     set(key: string, value: any): any;
     has(key: string): boolean;

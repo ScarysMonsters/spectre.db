@@ -1446,6 +1446,20 @@ impl Engine {
             FormatMode::V2 => (self.paths.spdb_path(), self.paths.spwal_path()),
             FormatMode::Json => (self.paths.snapshot_path(), self.paths.wal_path()),
         };
+        let migration_backup = |p: &std::path::Path| {
+            let name = p
+                .file_name()
+                .and_then(|name| name.to_str())
+                .unwrap_or("snapshot");
+            p.with_file_name(format!("{}.migrate-bak", name))
+        };
+        for source in [&old_snap, &old_wal] {
+            if source.exists() {
+                let backup = migration_backup(source);
+                std::fs::copy(source, &backup)
+                    .map_err(|e| SpectreError::io(e, "Failed to create migration backup"))?;
+            }
+        }
         self.mode = target;
 
 
