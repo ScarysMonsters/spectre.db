@@ -1,5 +1,7 @@
 # Changelog — spectre.db
 
+spectre.db is the same project as spectre.db 1.x by ScarysMonsters, rewritten in Rust. It is not a fork: v2 keeps the same API and JSON compatibility while replacing the JavaScript engine with a native Rust core.
+
 ## 2.1.1 (2026-11-09)
 
 Stability & Performance release. No on-disk format change and no public API break: v1.1.0 (JSON) and v2.1.x (binary) databases open unchanged.
@@ -155,6 +157,6 @@ New engine generation: binary v2 format, scalability and crash-safety proven by 
 - The JS fallback cleanly refuses the binary format with an explicit message.
 - No public API breakage from v1.1.0/v2.0.
 
-## 2.0.0-beta (initial fork)
+## 2.0.0-beta (initial Rust rewrite)
 - Full Rust rewrite (napi-rs v3), binary v2.0 format + byte-for-byte v1.1.0
   JSON compatibility, dual engine (native Rust + frozen JS fallback).
