@@ -7,6 +7,8 @@ const { EventEmitter } = require('events');
 const crypto = require('crypto');
 
 
+let nativeLoadError = null;
+
 function loadNative() {
   const candidates = [
     path.join(__dirname, 'build', 'Release', 'spectre.db-rs.node'),
@@ -15,8 +17,8 @@ function loadNative() {
   for (const c of candidates) {
     try {
       if (fs.existsSync(c)) return require(c);
-    } catch (_) {
-
+    } catch (err) {
+      nativeLoadError = err;
     }
   }
 
@@ -38,8 +40,8 @@ function loadNative() {
   for (const name of pkgNames) {
     try {
       return require(name);
-    } catch (_) {
-
+    } catch (err) {
+      nativeLoadError = err;
     }
   }
   return null;
@@ -194,6 +196,17 @@ class Database extends EventEmitter {
     }
 
 
+    this.engine = this._engineKind;
+    this.nativeLoadError = this._engineKind === 'native'
+      ? null
+      : (nativeLoadError ? String(nativeLoadError.message || nativeLoadError) : null);
+    if (this._engineKind === 'fallback' && process.env.SPECTRE_FORCE_FALLBACK !== '1') {
+      const reason = this.nativeLoadError || 'native binding not found for this platform';
+      queueMicrotask(() => {
+        this.emit('warn', new Error('[spectre.db] using JavaScript fallback engine: ' + reason));
+      });
+    }
+
     this._readyPromise = this._engineKind === 'fallback'
       ? Promise.resolve(this._engine.ready).then(() => this)
       : Promise.resolve(this);
@@ -204,10 +217,14 @@ class Database extends EventEmitter {
         try {
           const st = ncall(this._engine, 'stats');
           if (st.walOps >= opts.compactThreshold) {
-            this.compact().catch(() => {});
+            this.compact().catch((err) => {
+              if (this.listenerCount('warn') > 0) this.emit('warn', err);
+              else console.warn('[spectre.db] background compaction failed:', err && err.message ? err.message : err);
+            });
           }
-        } catch (_) {
+        } catch (err) {
 
+          if (this.listenerCount('warn') > 0) this.emit('warn', err);
         }
       }, opts.compactInterval);
       this._compactTimer.unref?.();
@@ -871,7 +888,6 @@ class Database extends EventEmitter {
 
   async close() {
     if (this._closed) return;
-    this._closed = true;
     if (this._compactTimer) {
       clearInterval(this._compactTimer);
       this._compactTimer = null;
@@ -881,6 +897,7 @@ class Database extends EventEmitter {
     } else {
       ncall(this._engine, 'close');
     }
+    this._closed = true;
   }
 
 

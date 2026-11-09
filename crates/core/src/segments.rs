@@ -8,6 +8,9 @@ pub struct CompactJob {
     pub generation: u64,
     pub seg_id: u64,
     pub base: String,
+    pub start_lsn: u64,
+    pub dirty_keys: Vec<Vec<u8>>,
+    pub dirty_all: bool,
     scratch: Option<Store>,
     compression: Compression,
     enc_key: Option<[u8; crypto::KEY_LEN]>,
@@ -22,6 +25,9 @@ pub struct CompactJobDone {
     pub bytes: Vec<u8>,
     pub entries: u64,
     pub crc: u32,
+    pub start_lsn: u64,
+    pub dirty_keys: Vec<Vec<u8>>,
+    pub dirty_all: bool,
 }
 
 impl CompactJob {
@@ -32,6 +38,9 @@ impl CompactJob {
             generation: 0,
             seg_id: 0,
             base: String::new(),
+            start_lsn: 0,
+            dirty_keys: Vec::new(),
+            dirty_all: false,
             scratch: None,
             compression: Compression::None,
             enc_key: None,
@@ -46,6 +55,9 @@ impl CompactJob {
         generation: u64,
         seg_id: u64,
         base: String,
+        start_lsn: u64,
+        dirty_keys: Vec<Vec<u8>>,
+        dirty_all: bool,
     ) -> Self {
         Self {
             legacy: false,
@@ -53,6 +65,9 @@ impl CompactJob {
             generation,
             seg_id,
             base,
+            start_lsn,
+            dirty_keys,
+            dirty_all,
             scratch: Some(scratch),
             compression,
             enc_key,
@@ -65,6 +80,9 @@ impl CompactJob {
         enc_key: Option<[u8; crypto::KEY_LEN]>,
         generation: u64,
         base: String,
+        start_lsn: u64,
+        dirty_keys: Vec<Vec<u8>>,
+        dirty_all: bool,
     ) -> Self {
         Self {
             legacy: false,
@@ -72,6 +90,9 @@ impl CompactJob {
             generation,
             seg_id: 0,
             base,
+            start_lsn,
+            dirty_keys,
+            dirty_all,
             scratch: Some(scratch),
             compression,
             enc_key,
@@ -90,6 +111,9 @@ impl CompactJob {
                 bytes: Vec::new(),
                 entries: 0,
                 crc: 0,
+                start_lsn: 0,
+                dirty_keys: Vec::new(),
+                dirty_all: false,
             };
         }
         let scratch = self.scratch.take().unwrap_or_default();
@@ -109,6 +133,9 @@ impl CompactJob {
             bytes,
             entries: scratch.len() as u64,
             crc,
+            start_lsn: self.start_lsn,
+            dirty_keys: self.dirty_keys,
+            dirty_all: self.dirty_all,
         }
     }
 }
@@ -121,7 +148,7 @@ mod tests {
     fn job_compute_produces_loadable_segment() {
         let mut s = Store::new();
         s.set(b"k", b"1".to_vec().into_boxed_slice());
-        let job = CompactJob::delta(s, Compression::Zstd, None, 7, 3, "db".into());
+        let job = CompactJob::delta(s, Compression::Zstd, None, 7, 3, "db".into(), 0, Vec::new(), false);
         let done = job.compute();
         assert_eq!(done.name, "db.spseg-3");
         assert_eq!(done.generation, 7);

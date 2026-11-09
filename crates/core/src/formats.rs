@@ -191,6 +191,9 @@ pub fn load_snapshot(bytes: &[u8], key: Option<&[u8; crypto::KEY_LEN]>) -> Resul
         })?,
     };
 
+    if body.len() < 8 {
+        return Err(SpectreError::snapshot_corrupted("Truncated snapshot body"));
+    }
     let count = u64::from_le_bytes(body[0..8].try_into().unwrap()) as usize;
     let mut store = Store::new();
     let mut off = 8usize;

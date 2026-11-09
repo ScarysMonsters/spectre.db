@@ -255,37 +255,11 @@ impl Engine {
                 match std::fs::read(self.paths.manifest_path()) {
                     Ok(bytes) => match formats::decode_manifest(&bytes) {
                         Ok(m) => {
-                            for seg in &m.segments {
-                                let p = self.paths.dir.join(&seg.name);
-                                if let Ok(sb) = std::fs::read(&p) {
-                                    let crc = crc32fast::hash(&sb);
-                                    if crc != seg.file_crc {
-                                        self.push_warn(format!(
-                                            "Segment {} CRC mismatch — skipped",
-                                            seg.name
-                                        ));
-                                        continue;
-                                    }
-                                    if let Ok(part) = formats::load_snapshot(&sb, self.enc_key.as_ref()) {
-                                        for (k, v) in part.iter() {
-                                            if v == b"\x00DEL" {
-                                                self.store.delete(k);
-                                            } else {
-                                                self.store.raw_insert(k, v.to_vec().into_boxed_slice());
-                                            }
-                                        }
-                                    } else {
-                                        self.push_warn(format!("Segment {} unreadable — skipped", seg.name));
-                                    }
-                                } else {
-                                    self.push_warn(format!("Segment {} missing — skipped", seg.name));
-                                }
-                            }
                             self.next_seg_id = m.segments.iter().map(|s| s.id + 1).max().unwrap_or(1);
                             self.manifest = m;
                         }
                         Err(_) => {
-                            self.push_warn("Manifest corrupted — ignoring segments".into());
+                            self.push_warn("Manifest corrupted - ignoring segments".into());
                         }
                     },
                     Err(_) => self.push_warn("Manifest unreadable — ignoring segments".into()),
@@ -322,6 +296,39 @@ impl Engine {
             }
         }
         self.snapshot_bytes = std::fs::metadata(&snap_path).map(|m| m.len()).unwrap_or(0);
+
+        // Segments are newer than the full snapshot: apply them after the
+        // snapshot, in manifest order, then let the WAL replay on top.
+        let segments = self.manifest.segments.clone();
+        for seg in &segments {
+            let p = self.paths.dir.join(&seg.name);
+            if let Ok(sb) = std::fs::read(&p) {
+                let crc = crc32fast::hash(&sb);
+                if crc != seg.file_crc {
+                    self.push_warn(format!("Segment {} CRC mismatch - skipped", seg.name));
+                    continue;
+                }
+                if let Ok(part) = formats::load_snapshot(&sb, self.enc_key.as_ref()) {
+                    for (k, v) in part.iter() {
+                        if crate::store::is_raw_key(k) {
+                            if v == b"\x00DEL" {
+                                self.store.delete_raw(k);
+                            } else {
+                                self.store.raw_insert(k, v.to_vec().into_boxed_slice());
+                            }
+                        } else if v == b"\x00DEL" {
+                            self.store.delete(k);
+                        } else {
+                            self.store.set(k, v.to_vec().into_boxed_slice());
+                        }
+                    }
+                } else {
+                    self.push_warn(format!("Segment {} unreadable - skipped", seg.name));
+                }
+            } else {
+                self.push_warn(format!("Segment {} missing - skipped", seg.name));
+            }
+        }
 
         for seg in &self.manifest.segments {
             let p = self.paths.dir.join(&seg.name);
@@ -1058,7 +1065,7 @@ impl Engine {
             };
 
         if !use_segments {
-            return self.compact_legacy();
+            return self.compact_legacy(true);
         }
 
 
@@ -1109,6 +1116,7 @@ impl Engine {
         self.dirty_all = false;
         self.write_manifest()?;
         self.crash_point("man_after_rename");
+        self.reset_wal()?;
 
 
         self.last_compaction_ms = Some(unix_ms());
@@ -1129,15 +1137,24 @@ impl Engine {
 
     fn checkpoint_full_inner(&mut self) -> Result<()> {
         self.wal_flush()?;
-        self.compact_legacy()?;
+        self.compact_legacy(false)?;
+        let old_segments = if self.mode == FormatMode::V2 {
+            std::mem::take(&mut self.manifest.segments)
+        } else {
+            Vec::new()
+        };
         if self.mode == FormatMode::V2 {
-            for seg in std::mem::take(&mut self.manifest.segments) {
-                let _ = std::fs::remove_file(self.paths.dir.join(&seg.name));
-            }
             self.manifest.generation += 1;
             self.manifest.indexes = self.indexes.keys().cloned().collect();
-            self.write_manifest()?;
+            if let Err(error) = self.write_manifest() {
+                self.manifest.segments = old_segments;
+                return Err(error);
+            }
         }
+        for seg in old_segments {
+            let _ = std::fs::remove_file(self.paths.dir.join(&seg.name));
+        }
+        self.reset_wal()?;
         Ok(())
     }
 
@@ -1169,7 +1186,7 @@ impl Engine {
     // Legacy single-file compaction: rewrite the whole store into the main
     // snapshot file, rotate `.bak*` copies, then truncate the WAL (all its
     // content ships inside the new snapshot by construction).
-    fn compact_legacy(&mut self) -> Result<()> {
+    fn compact_legacy(&mut self, reset_wal: bool) -> Result<()> {
         let bytes = match self.mode {
             FormatMode::V2 => formats::write_snapshot_ex(&self.store, self.opts.compression, self.snap_key()),
             FormatMode::Json => json_compat::write_json_snapshot(&self.store, self.opts.compress)?,
@@ -1221,7 +1238,9 @@ impl Engine {
         self.last_compaction_ms = Some(unix_ms());
 
 
-        self.reset_wal()?;
+        if reset_wal {
+            self.reset_wal()?;
+        }
         Ok(())
     }
 
@@ -1289,6 +1308,9 @@ impl Engine {
         let generation = self.manifest.generation + 1;
         let seg_id = self.next_seg_id;
         let base = self.paths.base.clone();
+        let start_lsn = self.last_lsn;
+        let dirty_snapshot: Vec<Vec<u8>> = self.dirty.iter().cloned().collect();
+        let dirty_all_snapshot = self.dirty_all;
         let job = if full_merge {
             let mut scratch = Store::new();
             for (k, v) in self.store.iter_arc() {
@@ -1296,11 +1318,19 @@ impl Engine {
             }
             self.dirty.clear();
             self.dirty_all = false;
-            crate::segments::CompactJob::full(scratch, compression, enc_key, generation, base)
+            crate::segments::CompactJob::full(
+                scratch,
+                compression,
+                enc_key,
+                generation,
+                base,
+                start_lsn,
+                dirty_snapshot,
+                dirty_all_snapshot,
+            )
         } else {
             let mut scratch = Store::new();
-            let dirty_keys: Vec<Vec<u8>> = self.dirty.iter().cloned().collect();
-            for k in &dirty_keys {
+            for k in &dirty_snapshot {
                 if let Some(v) = self.store.get_shared(k) {
                     scratch.raw_insert_arc(k, v);
                 } else {
@@ -1309,7 +1339,17 @@ impl Engine {
             }
             self.dirty.clear();
             self.dirty_all = false;
-            crate::segments::CompactJob::delta(scratch, compression, enc_key, generation, seg_id, base)
+            crate::segments::CompactJob::delta(
+                scratch,
+                compression,
+                enc_key,
+                generation,
+                seg_id,
+                base,
+                start_lsn,
+                dirty_snapshot,
+                dirty_all_snapshot,
+            )
         };
         Ok(job)
     }
@@ -1321,6 +1361,8 @@ impl Engine {
             return Ok("legacy");
         }
         if done.generation != self.manifest.generation + 1 {
+            self.dirty.extend(done.dirty_keys);
+            self.dirty_all |= done.dirty_all;
             return Ok("stale");
         }
         let path = self.paths.dir.join(&done.name);
@@ -1331,11 +1373,12 @@ impl Engine {
                 let _ = f.sync_data();
             }
         }
-        if done.full {
-            for seg in std::mem::take(&mut self.manifest.segments) {
-                let _ = std::fs::remove_file(self.paths.dir.join(&seg.name));
-            }
-        }
+        let old_generation = self.manifest.generation;
+        let old_segments = if done.full {
+            std::mem::take(&mut self.manifest.segments)
+        } else {
+            Vec::new()
+        };
         self.manifest.segments.push(ManifestEntry {
             id: done.seg_id,
             gen: done.generation,
@@ -1345,7 +1388,23 @@ impl Engine {
         });
         self.manifest.generation = done.generation;
         self.next_seg_id = self.next_seg_id.max(done.seg_id + 1);
-        self.write_manifest()?;
+        if let Err(error) = self.write_manifest() {
+            if done.full {
+                self.manifest.segments = old_segments;
+            } else {
+                self.manifest.segments.pop();
+            }
+            self.manifest.generation = old_generation;
+            self.dirty.extend(done.dirty_keys);
+            self.dirty_all |= done.dirty_all;
+            return Err(error);
+        }
+        for seg in old_segments {
+            let _ = std::fs::remove_file(self.paths.dir.join(&seg.name));
+        }
+        if self.last_lsn == done.start_lsn {
+            self.reset_wal()?;
+        }
         self.last_compaction_ms = Some(unix_ms());
         Ok("committed")
     }
@@ -1390,7 +1449,7 @@ impl Engine {
         self.mode = target;
 
 
-        self.compact_legacy()?;
+        self.compact_legacy(true)?;
         if self.mode == FormatMode::Json {
             let _ = std::fs::remove_file(self.paths.manifest_path());
         }

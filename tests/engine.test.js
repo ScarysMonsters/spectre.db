@@ -26,6 +26,16 @@ afterAll(() => {
 
 
 describe('basic CRUD (both engines)', () => {
+  test('exposes the selected engine kind', async () => {
+    const { dir, dbPath } = fresh('enginekind');
+    const db = new Database(dbPath);
+    await db.ready;
+    expect(db.engine).toBe(NATIVE ? 'native' : 'fallback');
+    if (NATIVE) expect(db.nativeLoadError).toBeNull();
+    await db.close();
+    cleanup(dir);
+  });
+
   test('set/get/has/delete roundtrip', async () => {
     const { dir, dbPath } = fresh('crud');
     const db = new Database(dbPath);

@@ -21,6 +21,16 @@ afterAll(() => {
 });
 
 D('fallback engine (v1.1.0 API, async)', () => {
+  test('reports the fallback engine kind', async () => {
+    const { dir, dbPath } = fresh('enginekind');
+    const { Database } = require('../index.js');
+    const db = new Database(dbPath);
+    await db.ready;
+    expect(db.engine).toBe('fallback');
+    await db.close();
+    cleanup(dir);
+  });
+
   test('set/get/has/delete roundtrip', async () => {
     const { dir, dbPath } = fresh('crud');
     const { Database } = require('../index.js');

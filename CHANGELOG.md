@@ -10,9 +10,15 @@ spectre.db is the same project as spectre.db 1.x by ScarysMonsters, rewritten in
 - **Directory fsync**: snapshot/manifest renames, WAL creation and WAL reset sync the parent directory on Unix; `durable` mode syncs the WAL after reset.
 - **Batch encryption**: `setMany`/`transaction`/`batch` now encrypt sensitive keys instead of writing plaintext. Sensitive keys are detected on any dotted segment (`user.password` is now encrypted).
 - **Crash tests made meaningful**: crash tests require an actual abort, hit snapshot points on a pre-existing snapshot, and cover `seg_written`/`man_before_rename` with a segmented base. Added a torn-WAL reopen test and a batch-encryption test.
-- Tests: 95 Rust core, 36 Jest, 9 fallback, 9 fault-injection, smoke OK.
+- **Segment recovery order**: the full snapshot is loaded first, then segments in manifest order, then the WAL. Segment entries now preserve dot-path merge semantics; previously a snapshot could overwrite a newer segment.
+- **Segment/WAL lifecycle**: synchronous and async segment compaction now truncate the WAL after a committed manifest. Async compaction skips truncation if writes landed after `prepare_compact`, so acknowledged writes are never lost.
+- **Segment commit ordering**: a full segment is recorded in the manifest before old segments are deleted. Failed/stale async jobs restore their dirty-key set so later compaction cannot skip them.
+- **Background compaction diagnostics**: timer failures emit `warn` (or console) instead of being swallowed; `close()` is retryable if the native close fails.
+- **Fallback diagnostics**: `db.engine` reports `native`/`fallback`, `db.nativeLoadError` exposes the native load failure, and a `warn` event is emitted when the JS fallback is selected implicitly.
+- **Snapshot decode guard**: a decompressed snapshot body shorter than its 8-byte count header now fails as corrupted instead of panicking.
+- Tests: 95 Rust core, 37 Jest, 10 fallback, 9 fault-injection, smoke OK.
 
-Still to address from the review: segment full-checkpoint ordering, WAL truncation after segment compaction, lock/PID and event-loop behavior, native fallback diagnostics, decoder panics/fuzzing, migrate backup, differential native/fallback tests, index/query semantics, NFC keys, and benchmark methodology.
+Still to address from the review: lock/PID ownership and blocking constructor, `compactAsync` legacy path contention, native fallback parity tests, differential native/fallback tests, decoder fuzzing, migrate backup, index/query semantics (A1–A5), NFC keys, and benchmark methodology.
 
 ## 2.1.1 (2026-11-09)
 
