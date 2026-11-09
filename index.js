@@ -80,6 +80,7 @@ function mapLegacyOptions(opts = {}) {
     compactMode: 'auto',
     legacyThreshold: 100000,
     segmentMergeEvery: 8,
+    walCheckpointBytes: 64 * 1024 * 1024,
   };
 
   if (opts.maxCacheSize !== undefined) mapped.maxCacheSize = opts.maxCacheSize;
@@ -103,6 +104,12 @@ function mapLegacyOptions(opts = {}) {
   if (opts.compactMode !== undefined) mapped.compactMode = opts.compactMode;
   if (opts.legacyThreshold !== undefined) mapped.legacyThreshold = opts.legacyThreshold;
   if (opts.segmentMergeEvery !== undefined) mapped.segmentMergeEvery = opts.segmentMergeEvery;
+  if (opts.walCheckpointBytes !== undefined) {
+    if (typeof opts.walCheckpointBytes !== 'number' || !Number.isFinite(opts.walCheckpointBytes) || opts.walCheckpointBytes < 0) {
+      throw new TypeError('[spectre.db] walCheckpointBytes must be a finite number >= 0');
+    }
+    mapped.walCheckpointBytes = opts.walCheckpointBytes;
+  }
 
   if (opts.autoSave !== undefined) {
     mapped.compactInterval = opts.autoSave > 0 ? opts.autoSave : 0;
@@ -157,6 +164,7 @@ class Database extends EventEmitter {
         compactMode: opts.compactMode,
         legacyThreshold: opts.legacyThreshold,
         segmentMergeEvery: opts.segmentMergeEvery,
+        walCheckpointBytes: opts.walCheckpointBytes,
       };
       if (opts.scryptLogN !== 14) engineOptions.scryptLogN = opts.scryptLogN;
       if (opts.scryptR !== 8) engineOptions.scryptR = opts.scryptR;
@@ -320,7 +328,20 @@ class Database extends EventEmitter {
     if (!Array.isArray(keys)) {
       throw new TypeError('[spectre.db] deleteMany() expects an array of keys');
     }
-    if (this._engineKind === 'fallback') return Promise.all(keys.map((key) => this.delete(key)));
+    if (this._engineKind === 'fallback') {
+      const { validateKey } = require('./fallback/src/utils/validator');
+      for (let i = 0; i < keys.length; i++) {
+        if (typeof keys[i] !== 'string') {
+          throw new TypeError(`[spectre.db] deleteMany() expects an array of strings, got ${typeof keys[i]} at index ${i}`);
+        }
+        validateKey(keys[i]);
+      }
+      const promises = new Array(keys.length);
+      for (let i = 0; i < keys.length; i++) {
+        promises[i] = this.delete(keys[i]);
+      }
+      return Promise.all(promises);
+    }
     const flags = ncall(this._engine, 'deleteMany', keys);
     for (let i = 0; i < keys.length; i++) {
       if (flags[i]) this.emit('change', { type: 'delete', key: keys[i] });
@@ -806,6 +827,36 @@ class Database extends EventEmitter {
     return status;
   }
 
+  /**
+   * WAL checkpoint: truncates the write-ahead log once it has outgrown
+   * `walCheckpointBytes` (or a quarter of the last snapshot size, whichever
+   * is larger). Returns true when a checkpoint was performed.
+   */
+  async checkpoint() {
+    if (this._engineKind === 'fallback') {
+      if (typeof this._engine.checkpoint === 'function') {
+        return this._engine.checkpoint();
+      }
+      return false;
+    }
+    this._assertOpen();
+    return ncall(this._engine, 'checkpoint');
+  }
+
+  /**
+   * Forces a full checkpoint regardless of thresholds: full snapshot rewrite
+   * + WAL truncation. Native engine only.
+   */
+  async checkpointForce() {
+    if (this._engineKind === 'fallback') {
+      if (typeof this._engine.checkpoint === 'function') return this._engine.checkpoint();
+      return this._engine.compact();
+    }
+    this._assertOpen();
+    ncall(this._engine, 'checkpointForce');
+    this.emit('save', this.getStats());
+  }
+
   async save() {
     return this.compact();
   }
@@ -982,4 +1033,4 @@ class Table {
   }
 }
 
-module.exports = { Database, Table, hasNativeEngine: nativeBinding != null, version: '2.1.0' };
+module.exports = { Database, Table, hasNativeEngine: nativeBinding != null, version: '2.1.1' };

@@ -103,7 +103,7 @@ mod tests {
         assert_eq!(st.entries, 100);
         assert!(st.file_size > 0);
         drop(db);
-        let mut db = Engine::open(&path, opts()).unwrap();
+        let db = Engine::open(&path, opts()).unwrap();
         assert_eq!(db.stats().unwrap().entries, 100);
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -207,7 +207,7 @@ mod tests {
         db.close().unwrap();
 
         let o = EngineOptions { encryption_key: Some(b"my-secret".to_vec()), ..opts() };
-        let mut db = Engine::open(&path, o).unwrap();
+        let db = Engine::open(&path, o).unwrap();
         let all = db.all(None).unwrap();
         let pw = all.iter().find(|(k, _)| k == "password").unwrap();
         assert_eq!(pw.1, br#"{"pw":"hunter2"}"#.to_vec());
@@ -781,6 +781,113 @@ mod v2_tests {
     }
 
     #[test]
+    fn wal_auto_checkpoint_truncates_and_preserves_data() {
+        let dir = tmpdir("walckptauto");
+        let path = dir.join("wca.db");
+        let o = EngineOptions { wal_checkpoint_bytes: 4096, ..opts() };
+        let mut db = Engine::open(&path, o).unwrap();
+        let payload = format!(r#"{{"blob":"{}"}}"#, "x".repeat(180));
+        let written_ops = 64_usize;
+        for i in 0..written_ops {
+            db.set(&format!("auto.{}", i), payload.as_bytes()).unwrap();
+        }
+        let st = db.stats().unwrap();
+        assert!(st.wal_bytes < (written_ops * 240) as u64);
+        assert_eq!(st.entries, written_ops);
+        for i in 0..written_ops {
+            assert_eq!(
+                db.get(&format!("auto.{}", i)).unwrap().unwrap().len(),
+                payload.len()
+            );
+        }
+        drop(db);
+        let db = Engine::open(&path, opts()).unwrap();
+        assert_eq!(db.stats().unwrap().entries, written_ops);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn wal_auto_checkpoint_disabled_when_zero() {
+        let dir = tmpdir("walckptoff");
+        let path = dir.join("wco.db");
+        let o = EngineOptions { wal_checkpoint_bytes: 0, ..opts() };
+        let mut db = Engine::open(&path, o).unwrap();
+        for i in 0..20 {
+            db.set(
+                &format!("k.{}", i),
+                format!(r#"{{"blob":"{}"}}"#, "y".repeat(280)).as_bytes(),
+            )
+            .unwrap();
+        }
+        let forced = db.maybe_checkpoint().unwrap();
+        assert!(!forced);
+        let st = db.stats().unwrap();
+        assert!(st.wal_bytes > 0);
+        assert_eq!(st.entries, 20);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn explicit_checkpoint_resets_wal_and_keeps_data() {
+        let dir = tmpdir("walckptexplicit");
+        let path = dir.join("wce.db");
+        let mut db = Engine::open(&path, opts()).unwrap();
+        db.set("a", br#"{"v":1}"#).unwrap();
+        db.set("b", br#"{"v":2}"#).unwrap();
+        db.delete("a").unwrap();
+        db.checkpoint().unwrap();
+        let st = db.stats().unwrap();
+        assert_eq!(st.wal_bytes, 0);
+        assert_eq!(st.wal_ops, 0);
+        assert_eq!(st.entries, 1);
+        assert!(db.get("a").unwrap().is_none());
+        assert_eq!(db.get("b").unwrap().unwrap(), br#"{"v":2}"#.to_vec());
+        db.set("c", br#"{"v":3}"#).unwrap();
+        drop(db);
+        let mut db = Engine::open(&path, opts()).unwrap();
+        assert_eq!(db.stats().unwrap().entries, 2);
+        assert!(db.get("a").unwrap().is_none());
+        db.delete("b").unwrap();
+        db.checkpoint().unwrap();
+        db.set("d", br#"{"v":4}"#).unwrap();
+        drop(db);
+        let mut db = Engine::open(&path, opts()).unwrap();
+        assert_eq!(db.all(None).unwrap().len(), 2);
+        assert!(db.get("c").unwrap().is_some());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn wal_checkpoint_recovers_and_reindexes_from_dirty_state() {
+        let dir = tmpdir("walckptidx");
+        let path = dir.join("wci.db");
+        let o = EngineOptions { wal_checkpoint_bytes: 2048, ..opts() };
+        let mut db = Engine::open(&path, o).unwrap();
+        db.create_index("role").unwrap();
+        for i in 0..30 {
+            db.set(
+                &format!("user.{}", i),
+                format!(r#"{{"role":"admin{}.{}"}}"#, i, i).as_bytes(),
+            )
+            .unwrap();
+        }
+        let st = db.stats().unwrap();
+        assert_eq!(st.entries, 30);
+        let hits = db
+            .index_lookup("role", br#""admin5.5""#)
+            .unwrap();
+        assert_eq!(hits, vec!["user.5".to_string()]);
+        drop(db);
+        let mut db = Engine::open(&path, opts()).unwrap();
+        assert_eq!(db.stats().unwrap().entries, 30);
+        let hits = db
+            .index_lookup("role", br#""admin29.29""#)
+            .unwrap();
+        assert_eq!(hits, vec!["user.29".to_string()]);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn delete_many_flags_and_index_cleanup() {
         let dir = tmpdir("deletemany");
         let path = dir.join("dm.db");
@@ -797,6 +904,56 @@ mod v2_tests {
             db.index_lookup("status", br#""idle""#).unwrap(),
             vec!["user.2".to_string()]
         );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn delete_many_parent_reindex_survives_reopen() {
+        let dir = tmpdir("deletemanyparent");
+        let path = dir.join("dmp.db");
+        let mut db = Engine::open(&path, opts()).unwrap();
+        db.create_index("status").unwrap();
+        db.set("user.1", br#"{"status":"active"}"#).unwrap();
+        db.set("user.1.extra", br#"{"status":"idle"}"#).unwrap();
+        db.set("user.2", br#"{"status":"active"}"#).unwrap();
+        let flags = db
+            .delete_many(&[
+                "user.1".to_string(),
+                "user.2".to_string(),
+                "missing".to_string(),
+            ])
+            .unwrap();
+        assert_eq!(flags, vec![true, true, false]);
+        assert!(db.index_lookup("status", br#""active""#).unwrap().is_empty());
+        assert!(db.index_lookup("status", br#""idle""#).unwrap().is_empty());
+        drop(db);
+        let mut db = Engine::open(&path, opts()).unwrap();
+        assert_eq!(db.count(None).unwrap(), 0);
+        assert!(db.index_lookup("status", br#""active""#).unwrap().is_empty());
+        assert!(db.index_lookup("status", br#""idle""#).unwrap().is_empty());
+        db.set("user.3", br#"{"status":"active"}"#).unwrap();
+        assert_eq!(
+            db.index_lookup("status", br#""active""#).unwrap(),
+            vec!["user.3".to_string()]
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn replacing_parent_removes_descendant_index_entries() {
+        let dir = tmpdir("indexreplaceparent");
+        let path = dir.join("irp.db");
+        let mut db = Engine::open(&path, opts()).unwrap();
+        db.create_index("status").unwrap();
+        db.set("user.1.name", br#"{"status":"active"}"#).unwrap();
+        db.set("user.1.age", br#"{"status":"idle"}"#).unwrap();
+        assert_eq!(db.index_lookup("status", br#""active""#).unwrap(), vec!["user.1.name".to_string()]);
+        assert_eq!(db.index_lookup("status", br#""idle""#).unwrap(), vec!["user.1.age".to_string()]);
+
+        db.set("user.1", br#"{"status":"merged"}"#).unwrap();
+        assert!(db.index_lookup("status", br#""active""#).unwrap().is_empty());
+        assert!(db.index_lookup("status", br#""idle""#).unwrap().is_empty());
+        assert_eq!(db.index_lookup("status", br#""merged""#).unwrap(), vec!["user.1".to_string()]);
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -854,6 +1011,59 @@ mod v2_tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+
+    #[test]
+    fn dbg_segmented_dirty_merged_parent() {
+        let dir = tmpdir("dbgsegmerge");
+        let path = dir.join("dbgseg.db");
+        let o = EngineOptions {
+            compact_mode: CompactMode::Segments,
+            lock_timeout_ms: 2000,
+            ..opts()
+        };
+        let mut db = Engine::open(&path, o.clone()).unwrap();
+        for i in 0..5 {
+            db.set(&format!("k{}", i), b"1").unwrap();
+        }
+        db.set("obj.a", br#"{"x":1,"deep":{"y":2}}"#).unwrap();
+        db.compact().unwrap();
+        db.set("obj.a.deep.y", b"99").unwrap();
+        let merged_in_mem = String::from_utf8(db.get("obj.a").unwrap().unwrap()).unwrap();
+        eprintln!("DBG in-mem merged: {}", merged_in_mem);
+        db.compact().unwrap();
+        let merged_pre_close = String::from_utf8(db.get("obj.a").unwrap().unwrap()).unwrap();
+        eprintln!("DBG post-compact pre-close: {}", merged_pre_close);
+        db.close().unwrap();
+        let wal_bytes = std::fs::read(path.with_extension("spwal")).unwrap_or_default();
+        let replay_dbg = crate::formats::replay_wal(&wal_bytes);
+        eprintln!("DBG wal replay ops: {:?}", replay_dbg.ops);
+        let mut db2 = Engine::open(&path, o).unwrap();
+        let all_fresh: Vec<(String, Vec<u8>)> = db2.all(None).unwrap();
+        eprintln!("DBG reopened all (fresh, no reads): {:?}", all_fresh.iter().map(|(k, v)| (k.as_str(), String::from_utf8_lossy(v).to_string())).collect::<Vec<_>>());
+        let leaf = db2.get("obj.a.deep.y").unwrap().map(|b| String::from_utf8(b).unwrap());
+        let merged_after_reopen = db2.get("obj.a").unwrap().map(|b| String::from_utf8(b).unwrap());
+        let all: Vec<(String, Vec<u8>)> = db2.all(None).unwrap();
+        eprintln!("DBG reopened leaf: {:?}", leaf);
+        eprintln!("DBG reopened ancestor: {:?}", merged_after_reopen);
+        eprintln!("DBG reopened all: {:?}", all.iter().map(|(k, v)| (k.as_str(), String::from_utf8_lossy(v).to_string())).collect::<Vec<_>>());
+        for entry in std::fs::read_dir(&dir).unwrap() {
+            let entry = entry.unwrap();
+            let p = entry.path();
+            if p.extension().map(|e| e != "db").unwrap_or(true) {
+                eprintln!("DBG file: {} ({} bytes)", p.display(), p.metadata().map(|m| m.len()).unwrap_or(0));
+                if let Ok(bytes) = std::fs::read(&p) {
+                    if !bytes.is_empty() && (p.extension().map(|e| e.to_str().unwrap().starts_with("sp")).unwrap_or(false)) {
+                        if let Ok(s) = crate::formats::load_snapshot(&bytes, None) {
+                            eprintln!("DBG   -> entries: {:?}", s.iter().map(|(k, v)| (String::from_utf8_lossy(k).to_string(), String::from_utf8_lossy(v).to_string())).collect::<Vec<_>>());
+                        }
+                    }
+                }
+            }
+        }
+        assert_eq!(leaf.unwrap(), "99");
+        assert_eq!(merged_after_reopen.unwrap(), merged_in_mem);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     #[test]
     fn batch_survives_crash_and_single_record() {

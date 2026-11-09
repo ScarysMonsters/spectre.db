@@ -1,0 +1,17 @@
+{
+  "package": "local spectre.db 2.1.1 (GNU build)",
+  "version": "2.1.1",
+  "native": true,
+  "n": 50000,
+  "valueBytes": 4096,
+  "insertMs": 1006.6615,
+  "insertOps": 49669,
+  "compactMs": 164.7183,
+  "rssBefore": 366178304,
+  "rssAfter": 369446912,
+  "rssPeak": 487141376,
+  "rssPeakDelta": 120963072,
+  "diskBefore": 205805324,
+  "diskAfter": 271661395,
+  "entries": 50000
+}

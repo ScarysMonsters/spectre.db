@@ -11,7 +11,7 @@ const { Database, Table, hasNativeEngine, version } = require('@sexfy/spectre.db
 | `Database` | class | The database handle |
 | `Table` | class | Namespaced view (created via `db.table(name)`) |
 | `hasNativeEngine` | boolean | `true` when the Rust addon is loaded |
-| `version` | string | Package version (`'2.1.0'`) |
+| `version` | string | Package version (`'2.1.1'`) |
 
 TypeScript definitions are shipped in `index.d.ts`.
 
@@ -54,6 +54,7 @@ new Database(filePath = './database.json', options = {})
 | `compactMode` | `'auto' \| 'legacy' \| 'segments'` | `'auto'` | Compaction strategy |
 | `legacyThreshold` | number | `100000` | Entry count under which full rewrites are used (`auto` mode) |
 | `segmentMergeEvery` | number | `8` | Segments before a full merge |
+| `walCheckpointBytes` | number | `67108864` | Auto WAL checkpoint budget (bytes). The WAL is truncated to a fresh snapshot once it outgrows `max(walCheckpointBytes, lastSnapshotSize / 4)`. `0` disables auto checkpoints |
 | `lockTimeout` | number | `30000` | Lock acquisition timeout (ms) |
 | `warmKeys` | string[] | `[]` | Keys to pre-load into the cache on startup |
 
@@ -401,6 +402,24 @@ continue during the operation. Resolves to `'committed'`, `'stale'` or
 const status = await db.compactAsync();
 ```
 
+### `checkpoint()` / `checkpointForce()`
+
+Native engine only. `checkpoint()` runs a full checkpoint only if the WAL has
+outgrown `walCheckpointBytes` (or a quarter of the last snapshot size) and
+resolves to `true` when a snapshot write + WAL truncation actually happened.
+`checkpointForce()` always runs the full checkpoint. The JavaScript fallback
+engine maps both to `compact()` / returns `false` when unsupported.
+
+```js
+const checkpointed = await db.checkpoint();
+await db.checkpointForce();
+```
+
+Auto checkpoints also fire during writes (at operation boundaries) with the
+same budget, so `walBytes` stays bounded and restarts replay at most one
+budget worth of frames. The per-op WAL frames are always written before the
+checkpoint can truncate, keeping the atomic guarantee intact.
+
 ### `clear()`
 
 Removes all entries (the operation itself is WAL-logged).
@@ -435,7 +454,7 @@ v1.1.0-shaped stats.
 | Field | Description |
 |---|---|
 | `driver` | Always `'spectre.db'` |
-| `engine` | Engine string, e.g. `'spectre.db/2.1.0 (rust)'` |
+| `engine` | Engine string, e.g. `'spectre.db/2.1.1 (rust)'` |
 | `format` | `'v2'` or `'json'` |
 | `compress` / `compression` | Compression flags |
 | `encrypted` / `snapshotEncrypted` | Encryption flags |

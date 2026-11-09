@@ -31,6 +31,8 @@ pub struct EngineOptions {
     pub legacy_threshold: Option<f64>,
 
     pub segment_merge_every: Option<u32>,
+
+    pub wal_checkpoint_bytes: Option<f64>,
 }
 
 #[napi(object)]
@@ -122,6 +124,10 @@ fn to_core_options(o: Option<&EngineOptions>) -> core::EngineOptions {
         },
         legacy_threshold: o.legacy_threshold.map(|v| v as u64).unwrap_or(100_000),
         segment_merge_every: o.segment_merge_every.unwrap_or(8),
+        wal_checkpoint_bytes: o
+            .wal_checkpoint_bytes
+            .map(|v| v.max(0.0) as u64)
+            .unwrap_or(64 * 1024 * 1024),
     }
 }
 
@@ -351,7 +357,7 @@ impl SpectreEngine {
         let st = lock(&self.inner).stats().map_err(to_napi_err)?;
         Ok(StatsObject {
             driver: "spectre.db".to_string(),
-            engine: "spectre.db/2.1.0 (rust)".to_string(),
+            engine: "spectre.db/2.1.1 (rust)".to_string(),
             format: st.format,
             compress: st.compress,
             compression: st.compression,
@@ -383,6 +389,16 @@ impl SpectreEngine {
     #[napi]
     pub fn compact(&self) -> napi::Result<()> {
         lock(&self.inner).compact().map_err(to_napi_err)
+    }
+
+    #[napi]
+    pub fn checkpoint(&self) -> napi::Result<bool> {
+        lock(&self.inner).maybe_checkpoint().map_err(to_napi_err)
+    }
+
+    #[napi]
+    pub fn checkpoint_force(&self) -> napi::Result<()> {
+        lock(&self.inner).checkpoint().map_err(to_napi_err)
     }
 
     #[napi]

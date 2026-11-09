@@ -18,6 +18,7 @@ declare module '@sexfy/spectre.db' {
     compactMode?: 'auto' | 'legacy' | 'segments';
     legacyThreshold?: number;
     segmentMergeEvery?: number;
+    walCheckpointBytes?: number;
     compactThreshold?: number;
     compactInterval?: number;
     warmKeys?: string[];
@@ -110,6 +111,8 @@ declare module '@sexfy/spectre.db' {
     transaction(fn: (tx: TransactionContext) => any): Promise<any>;
     compact(): Promise<void>;
     compactAsync(): Promise<'committed' | 'stale' | 'legacy'>;
+    checkpoint(): Promise<boolean>;
+    checkpointForce(): Promise<void>;
     save(): Promise<void>;
     clear(): Promise<Database>;
     close(): Promise<void>;

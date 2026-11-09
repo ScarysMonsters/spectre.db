@@ -1,5 +1,38 @@
 # Changelog — spectre.db
 
+## 2.1.1 (2026-11-09)
+
+Stability & Performance release. No on-disk format change and no public API break: v1.1.0 (JSON) and v2.1.x (binary) databases open unchanged.
+
+### Reliability
+- **Index integrity on parent replacement**: replacing a parent object/key now removes index entries for every removed descendant, in single `set` and in batches.
+- **WAL-first mutation**: `set`, `delete`, `clear`, `setRaw` and `deleteRaw` append to the WAL before mutating the store or indexes. A WAL I/O error leaves the in-memory database unchanged.
+- **Batch validation**: delete keys and nested batch operations are validated; delete flags are computed from the exact key removal instead of a separate lookup.
+- **`deleteMany()` parity**: native and fallback return one boolean per key; the fallback awaits async deletes.
+- Tests: 94 Rust core, 35 Jest, 9 fallback, smoke OK.
+
+### Performance
+- **Parent-count fast path**: leaf sets/deletes skip descendant B-tree scans; prefix parents are tracked in a compact counter map. This accelerates writes, deletes and index updates.
+- **Direct WAL frames**: set/delete are encoded without an intermediate `Op`, with exact buffer reservation.
+- **Shared index keys**: one `Arc<[u8]>` key allocation per leaf update is shared by every secondary index (also reduces index RSS).
+- **`count(prefix)`**: prefix-bounded counting instead of a full-map fallback.
+
+### Benchmarks (100k standard, local GNU)
+- Single write **108 104 → 118 125 (+9.3%)**.
+- Batch write **272 581 → 344 583 (+26.4%)**.
+- Random read **655 303 → 716 800 (+9.4%)**.
+- Batch read **1 061 829 → 1 218 256 (+14.7%)**.
+- Full scan **1 484 578 → 1 636 249 (+10.2%)**.
+- Mixed 80/20 **289 964 → 336 144 (+15.9%)**.
+- DeleteMany **581 126 → 821 717 (+41.4%)**.
+- Indexed insert **93 366 → 122 696 (+31.4%)**; indexed update **46 174 → 53 708 (+16.3%)**; P99 **40.8 → 28.4 µs**; 5-index overhead **×1.85 → ×1.35**.
+- Indexed lookup **6.56 → 4.17 ms**; range **5.02 → 3.04 ms**.
+- Compaction peak RSS **420 → 121 MB (-71.2%)**; compaction time **858 → 165 ms (-80.8%)**.
+- Prefix scans are flat versus 2.1.0; the 2.1.1 prefix targets were not reached.
+- Count is flat within thermal variance.
+
+Raw results: `benchmarks/results/2.1.1/`.
+
 ## 2.1.0 (2026-11-06)
 
 Performance and memory release. No on-disk format change and no public API break: v1.1.0 (JSON) and v2.0.x (binary) databases open unchanged.

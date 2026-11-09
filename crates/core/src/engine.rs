@@ -81,6 +81,7 @@ pub struct EngineOptions {
     pub legacy_threshold: u64,
 
     pub segment_merge_every: u32,
+    pub wal_checkpoint_bytes: u64,
 }
 
 impl Default for EngineOptions {
@@ -103,6 +104,7 @@ impl Default for EngineOptions {
             compact_mode: CompactMode::Auto,
             legacy_threshold: 100_000,
             segment_merge_every: 8,
+            wal_checkpoint_bytes: 64 * 1024 * 1024,
         }
     }
 }
@@ -146,6 +148,11 @@ pub struct Engine {
     cache_misses: u64,
 
     indexes: BTreeMap<String, SecondaryIndex>,
+
+
+    snapshot_bytes: u64,
+    checkpointing: bool,
+    ckpt_pending: bool,
 }
 
 impl std::fmt::Debug for Engine {
@@ -228,6 +235,9 @@ impl Engine {
             last_lsn: 0,
             recovery_count: 0,
             last_compaction_ms: None,
+            snapshot_bytes: 0,
+            checkpointing: false,
+            ckpt_pending: false,
             cache_hits: 0,
             cache_misses: 0,
             indexes: BTreeMap::new(),
@@ -305,6 +315,14 @@ impl Engine {
                 }
             }
         }
+        self.snapshot_bytes = std::fs::metadata(&snap_path).map(|m| m.len()).unwrap_or(0);
+
+        for seg in &self.manifest.segments {
+            let p = self.paths.dir.join(&seg.name);
+            if let Ok(md) = std::fs::metadata(&p) {
+                self.snapshot_bytes += md.len();
+            }
+        }
 
 
         let wal_path = match self.mode {
@@ -325,7 +343,7 @@ impl Engine {
                     self.base_lsn = h.base_lsn;
                 }
                 formats::apply_ops(&mut self.store, &replay.ops);
-                self.last_lsn = self.base_lsn + replay.last_lsn;
+                self.last_lsn = replay.last_lsn.max(self.base_lsn);
                 self.wal_ops = replay.ops.len();
                 if replay.ops.len() > 0 {
                     self.recovery_count += 1;
@@ -554,6 +572,7 @@ impl Engine {
 
     pub fn set(&mut self, key: &str, value_json: &[u8]) -> Result<()> {
         self.check_open()?;
+        self.checkpoint_gate()?;
         validator::validate_key_fast(key)?;
         validator::validate_value_size(value_json.len())?;
         serde_json::from_slice::<serde::de::IgnoredAny>(value_json)
@@ -568,28 +587,37 @@ impl Engine {
             value_json.to_vec()
         };
 
+        let removed_descendants = if self.indexes.is_empty() {
+            Vec::new()
+        } else {
+            self.store.descendant_keys(key.as_bytes())
+        };
+        self.wal_append_set(key, &stored)?;
         self.store.set_slice(key.as_bytes(), &stored);
         self.dirty.insert(key.as_bytes().to_vec());
+        for descendant in &removed_descendants {
+            self.index_remove_key(descendant);
+        }
         self.index_touch(key.as_bytes());
-        self.wal_append(&Op::Set { key: key.as_bytes().to_vec(), value: stored.into_boxed_slice() })?;
         Ok(())
     }
 
     pub fn delete(&mut self, key: &str) -> Result<bool> {
         self.check_open()?;
+        self.checkpoint_gate()?;
         validator::validate_key_fast(key)?;
         let removed_descendants = if self.indexes.is_empty() {
             Vec::new()
         } else {
             self.store.descendant_keys(key.as_bytes())
         };
+        self.wal_append_del(key)?;
         if self.store.delete(key.as_bytes()) {
             self.dirty.insert(key.as_bytes().to_vec());
             for descendant in &removed_descendants {
                 self.index_remove_key(descendant);
             }
             self.index_touch(key.as_bytes());
-            self.wal_append(&Op::Del { key: key.as_bytes().to_vec() })?;
             Ok(true)
         } else {
             Ok(false)
@@ -598,6 +626,7 @@ impl Engine {
 
     pub fn delete_many(&mut self, keys: &[String]) -> Result<Vec<bool>> {
         self.check_open()?;
+        self.checkpoint_gate()?;
         let ops = keys
             .iter()
             .map(|key| Op::Del { key: key.as_bytes().to_vec() })
@@ -607,19 +636,21 @@ impl Engine {
 
     pub fn clear(&mut self) -> Result<()> {
         self.check_open()?;
+        self.checkpoint_gate()?;
+        self.wal_append(&Op::Clear)?;
         self.store.clear();
         self.dirty.clear();
         self.dirty_all = true;
         for idx in self.indexes.values_mut() {
             idx.clear();
         }
-        self.wal_append(&Op::Clear)?;
         Ok(())
     }
 
 
     pub fn batch(&mut self, ops: Vec<Op>) -> Result<Vec<bool>> {
         self.check_open()?;
+        self.checkpoint_gate()?;
         validate_batch_ops(&ops)?;
         self.wal_append_batch(&ops)?;
         let mut flags = Vec::with_capacity(ops.len());
@@ -630,6 +661,9 @@ impl Engine {
             match op {
                 Op::Set { key, value } => {
                     flags.push(true);
+                    if track_indexes {
+                        removed.extend(self.store.descendant_keys(&key));
+                    }
                     self.store.set(&key, value);
                     self.dirty.insert(key.clone());
                     if track_indexes {
@@ -662,6 +696,9 @@ impl Engine {
                     for s in sub {
                         match s {
                             Op::Set { key, value } => {
+                                if track_indexes {
+                                    removed.extend(self.store.descendant_keys(&key));
+                                }
                                 self.store.set(&key, value);
                                 self.dirty.insert(key.clone());
                                 if track_indexes {
@@ -689,7 +726,7 @@ impl Engine {
             for key in &removed {
                 self.index_remove_key(key);
             }
-            let mut leaves: BTreeSet<Vec<u8>> = BTreeSet::new();
+            let mut leaves: BTreeSet<Arc<[u8]>> = BTreeSet::new();
             let mut missing: Vec<Vec<u8>> = Vec::new();
             for key in &touched {
                 match self.resolve_index_leaf(key) {
@@ -771,6 +808,44 @@ impl Engine {
 
     fn crash_point(&self, name: &str) {
         crash_point_named(name);
+    }
+
+    fn wal_append_set(&mut self, key: &str, value: &[u8]) -> Result<()> {
+        if self.mode != FormatMode::V2 {
+            return self.wal_append(&Op::Set {
+                key: key.as_bytes().to_vec(),
+                value: value.to_vec().into_boxed_slice(),
+            });
+        }
+        self.wal_buf.reserve(key.len() + value.len() + 32);
+        let start = self.wal_buf.len();
+        let lsn = self.last_lsn + 1;
+        let payload_len = 4 + key.len() + value.len();
+        self.wal_buf.push(formats::OP_SET);
+        self.wal_buf.extend_from_slice(&(payload_len as u32).to_le_bytes());
+        self.wal_buf.extend_from_slice(&(key.len() as u32).to_le_bytes());
+        self.wal_buf.extend_from_slice(key.as_bytes());
+        self.wal_buf.extend_from_slice(value);
+        formats::frame3_tail(&mut self.wal_buf, start, lsn);
+        self.last_lsn = lsn;
+        self.wal_ops += 1;
+        self.wal_flush_gate()
+    }
+
+    fn wal_append_del(&mut self, key: &str) -> Result<()> {
+        if self.mode != FormatMode::V2 {
+            return self.wal_append(&Op::Del { key: key.as_bytes().to_vec() });
+        }
+        self.wal_buf.reserve(key.len() + 24);
+        let start = self.wal_buf.len();
+        let lsn = self.last_lsn + 1;
+        self.wal_buf.push(formats::OP_DEL);
+        self.wal_buf.extend_from_slice(&(key.len() as u32).to_le_bytes());
+        self.wal_buf.extend_from_slice(key.as_bytes());
+        formats::frame3_tail(&mut self.wal_buf, start, lsn);
+        self.last_lsn = lsn;
+        self.wal_ops += 1;
+        self.wal_flush_gate()
     }
 
     fn wal_append(&mut self, op: &Op) -> Result<()> {
@@ -890,6 +965,30 @@ impl Engine {
         }
         self.wal_bytes += self.wal_buf.len() as u64;
         self.wal_buf.clear();
+        self.auto_checkpoint()
+    }
+
+    fn auto_checkpoint(&mut self) -> Result<()> {
+        if self.opts.wal_checkpoint_bytes == 0 || self.checkpointing {
+            return Ok(());
+        }
+        let floor = self.opts.wal_checkpoint_bytes.max(self.snapshot_bytes / 4);
+        if self.wal_bytes >= floor {
+            // Arm only: firing here would truncate the WAL while the op that
+            // just appended is not yet applied to the store AND its frame is
+            // about to be wiped. The trigger takes effect at the next mutative
+            // op boundary (checkpoint_gate), where the entire store is already
+            // durable in the WAL and the snapshot will legitimately contain it.
+            self.ckpt_pending = true;
+        }
+        Ok(())
+    }
+
+    fn checkpoint_gate(&mut self) -> Result<()> {
+        if self.ckpt_pending && !self.checkpointing {
+            self.ckpt_pending = false;
+            self.checkpoint_full()?;
+        }
         Ok(())
     }
 
@@ -916,15 +1015,7 @@ impl Engine {
             || self.manifest.segments.len() >= self.opts.segment_merge_every as usize;
 
         if full_merge {
-            self.compact_legacy()?;
-
-            for seg in std::mem::take(&mut self.manifest.segments) {
-                let _ = std::fs::remove_file(self.paths.dir.join(&seg.name));
-            }
-            self.manifest.generation += 1;
-            self.manifest.indexes = self.indexes.keys().cloned().collect();
-            self.write_manifest()?;
-            self.reset_wal()?;
+            self.checkpoint_full()?;
             self.last_compaction_ms = Some(unix_ms());
             return Ok(());
         }
@@ -973,6 +1064,59 @@ impl Engine {
     }
 
 
+    /// Explicit full checkpoint: dump the whole store into the main snapshot
+    /// file, retire segmented files, and truncate the WAL. Cost is one
+    /// snapshot write; the store is already in sync with the WAL by
+    /// construction (WAL-first ordering), so truncating afterwards is safe.
+    fn checkpoint_full(&mut self) -> Result<()> {
+        self.checkpointing = true;
+        let res = self.checkpoint_full_inner();
+        self.checkpointing = false;
+        res
+    }
+
+    fn checkpoint_full_inner(&mut self) -> Result<()> {
+        self.wal_flush()?;
+        self.compact_legacy()?;
+        if self.mode == FormatMode::V2 {
+            for seg in std::mem::take(&mut self.manifest.segments) {
+                let _ = std::fs::remove_file(self.paths.dir.join(&seg.name));
+            }
+            self.manifest.generation += 1;
+            self.manifest.indexes = self.indexes.keys().cloned().collect();
+            self.write_manifest()?;
+        }
+        Ok(())
+    }
+
+    /// Force a full checkpoint (snapshot write + WAL truncation).
+    pub fn checkpoint(&mut self) -> Result<()> {
+        self.check_open()?;
+        self.checkpoint_full()?;
+        self.last_compaction_ms = Some(unix_ms());
+        Ok(())
+    }
+
+    /// Run an automatic checkpoint if the WAL has outgrown the configured
+    /// budget (max of `wal_checkpoint_bytes` and a quarter of the last
+    /// snapshot size). Returns whether a checkpoint was performed.
+    pub fn maybe_checkpoint(&mut self) -> Result<bool> {
+        self.check_open()?;
+        if self.opts.wal_checkpoint_bytes == 0 || self.checkpointing {
+            return Ok(false);
+        }
+        let floor = self.opts.wal_checkpoint_bytes.max(self.snapshot_bytes / 4);
+        if self.wal_bytes < floor {
+            return Ok(false);
+        }
+        self.checkpoint_full()?;
+        self.last_compaction_ms = Some(unix_ms());
+        Ok(true)
+    }
+
+    // Legacy single-file compaction: rewrite the whole store into the main
+    // snapshot file, rotate `.bak*` copies, then truncate the WAL (all its
+    // content ships inside the new snapshot by construction).
     fn compact_legacy(&mut self) -> Result<()> {
         self.rotate_backups()?;
 
@@ -986,6 +1130,7 @@ impl Engine {
         };
         let tmp = unique_tmp(&snap_path);
         write_file_atomic(&tmp, &bytes, &snap_path, Some("snap_before_rename"))?;
+        self.snapshot_bytes = bytes.len() as u64;
         self.crash_point("snap_after_rename");
 
 
@@ -1266,14 +1411,15 @@ impl Engine {
 
     pub fn set_raw(&mut self, key: &str, bytes: &[u8]) -> Result<()> {
         self.check_open()?;
+        self.checkpoint_gate()?;
         validator::validate_key_fast(key)?;
         validator::validate_value_size(bytes.len())?;
-        self.store.set_raw(key.as_bytes(), bytes.to_vec().into_boxed_slice());
-        self.dirty.insert(key.as_bytes().to_vec());
         self.wal_append(&Op::Set {
             key: [b"\x00".as_slice(), key.as_bytes()].concat(),
             value: bytes.to_vec().into_boxed_slice(),
         })?;
+        self.store.set_raw(key.as_bytes(), bytes.to_vec().into_boxed_slice());
+        self.dirty.insert(key.as_bytes().to_vec());
         Ok(())
     }
 
@@ -1290,12 +1436,13 @@ impl Engine {
 
     pub fn delete_raw(&mut self, key: &str) -> Result<bool> {
         self.check_open()?;
+        self.checkpoint_gate()?;
         validator::validate_key_fast(key)?;
+        self.wal_append(&Op::Del {
+            key: [b"\x00".as_slice(), key.as_bytes()].concat(),
+        })?;
         if self.store.delete_raw(key.as_bytes()) {
             self.dirty.insert(key.as_bytes().to_vec());
-            self.wal_append(&Op::Del {
-                key: [b"\x00".as_slice(), key.as_bytes()].concat(),
-            })?;
             Ok(true)
         } else {
             Ok(false)
@@ -1452,13 +1599,18 @@ impl Engine {
     }
 
 
-    fn resolve_index_leaf(&self, key: &[u8]) -> Option<Vec<u8>> {
-        if self.store.contains(key) {
-            return Some(key.to_vec());
+    fn resolve_index_leaf(&self, key: &[u8]) -> Option<Arc<[u8]>> {
+        if let Some(leaf) = self.store.get_key_arc(key) {
+            return Some(leaf);
         }
-        (0..key.len())
-            .find(|&i| key[i] == b'.' && self.store.contains(&key[..i]))
-            .map(|i| key[..i].to_vec())
+        for i in 0..key.len() {
+            if key[i] == b'.' {
+                if let Some(leaf) = self.store.get_key_arc(&key[..i]) {
+                    return Some(leaf);
+                }
+            }
+        }
+        None
     }
 
     fn index_remove_key(&mut self, key: &[u8]) {
@@ -1467,7 +1619,7 @@ impl Engine {
         }
     }
 
-    fn index_update_leaf(&mut self, leaf: &[u8]) {
+    fn index_update_leaf(&mut self, leaf: &Arc<[u8]>) {
         let parsed: Option<serde_json::Value> = match self.store.get_ref(leaf) {
             Some(bytes) => {
                 if let Some(enc_key) = &self.enc_key {

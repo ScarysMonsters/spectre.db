@@ -1,0 +1,31 @@
+{
+  "package": "local spectre.db 2.1.1 (GNU build)",
+  "version": "2.1.1",
+  "native": true,
+  "n": 1000000,
+  "zones": 10,
+  "groups": 100,
+  "perGroup": 1000,
+  "insertMs": 4603.6158,
+  "insertOps": 217221,
+  "results": {
+    "10%": {
+      "prefix": "zone9.",
+      "rows": 100000,
+      "ms": 65.7045,
+      "rowsPerSec": 1521966
+    },
+    "1%": {
+      "prefix": "zone9.group9",
+      "rows": 11000,
+      "ms": 7.5607,
+      "rowsPerSec": 1454892
+    },
+    "0.1%": {
+      "prefix": "zone9.group99.",
+      "rows": 1000,
+      "ms": 0.6072,
+      "rowsPerSec": 1646904
+    }
+  }
+}

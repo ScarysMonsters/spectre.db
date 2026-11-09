@@ -85,18 +85,19 @@ impl SecondaryIndex {
 
     pub fn insert_key(&mut self, key: &[u8], value_bytes: &[u8]) {
         let parsed: Option<Value> = serde_json::from_slice(value_bytes).ok();
-        self.insert_parsed_key(key, parsed.as_ref());
+        let key: Arc<[u8]> = Arc::from(key);
+        self.insert_parsed_key(&key, parsed.as_ref());
     }
 
-    pub fn insert_parsed_key(&mut self, key: &[u8], root: Option<&Value>) {
-        self.remove_key(key);
+    pub fn insert_parsed_key(&mut self, key: &Arc<[u8]>, root: Option<&Value>) {
+        self.remove_key(key.as_ref());
         let Some(root) = root else { return };
         let Some(target) = extract_path(root, &self.path) else { return };
         if matches!(target, Value::Object(_) | Value::Array(_)) {
             return;
         }
         let encoded: Arc<[u8]> = Arc::from(order_key(target));
-        let key_ref: Arc<[u8]> = Arc::from(key);
+        let key_ref: Arc<[u8]> = Arc::clone(key);
         let (encoded, position) = match self.tree.entry(encoded) {
             Entry::Occupied(mut entry) => {
                 let encoded = Arc::clone(entry.key());

@@ -15,6 +15,7 @@ pub fn is_raw_key(k: &[u8]) -> bool {
 pub struct Store {
     map: BTreeMap<Arc<[u8]>, Arc<[u8]>>,
     hash: HashMap<Arc<[u8]>, Arc<[u8]>>,
+    parents: HashMap<Arc<[u8]>, u32>,
 }
 
 fn descendants_range(key: &[u8]) -> (Bound<Arc<[u8]>>, Bound<Arc<[u8]>>) {
@@ -91,9 +92,7 @@ impl Store {
     }
 
     pub fn raw_insert_arc(&mut self, key: &[u8], value: Arc<[u8]>) {
-        let key: Arc<[u8]> = Arc::from(key);
-        self.map.insert(Arc::clone(&key), Arc::clone(&value));
-        self.hash.insert(key, value);
+        self.insert_key_value(Arc::from(key), value);
     }
 
     fn insert_entry(&mut self, key: Vec<u8>, value: Box<[u8]>) {
@@ -101,14 +100,53 @@ impl Store {
     }
 
     fn insert_entry_arc(&mut self, key: Vec<u8>, value: Arc<[u8]>) {
-        let key: Arc<[u8]> = Arc::from(key);
-        self.map.insert(Arc::clone(&key), Arc::clone(&value));
-        self.hash.insert(key, value);
+        self.insert_key_value(Arc::from(key), value);
+    }
+
+    fn insert_key_value(&mut self, key: Arc<[u8]>, value: Arc<[u8]>) {
+        let existed = self
+            .map
+            .insert(Arc::clone(&key), Arc::clone(&value))
+            .is_some();
+        self.hash.insert(Arc::clone(&key), value);
+        if !existed {
+            self.add_ancestors(&key);
+        }
+    }
+
+    fn add_ancestors(&mut self, key: &[u8]) {
+        for index in 1..key.len() {
+            if key[index] == b'.' {
+                let parent: Arc<[u8]> = Arc::from(&key[..index]);
+                *self.parents.entry(parent).or_insert(0) += 1;
+            }
+        }
+    }
+
+    fn remove_ancestors(&mut self, key: &[u8]) {
+        for index in 1..key.len() {
+            if key[index] == b'.' {
+                let parent: Arc<[u8]> = Arc::from(&key[..index]);
+                if let Some(count) = self.parents.get_mut(parent.as_ref()) {
+                    *count -= 1;
+                    if *count == 0 {
+                        self.parents.remove(parent.as_ref());
+                    }
+                }
+            }
+        }
+    }
+
+    fn has_descendants(&self, key: &[u8]) -> bool {
+        self.parents.get(key).copied().unwrap_or(0) > 0
     }
 
     fn remove_entry(&mut self, key: &[u8]) -> bool {
         let removed = self.map.remove(key).is_some();
-        self.hash.remove(key);
+        if removed {
+            self.hash.remove(key);
+            self.remove_ancestors(key);
+        }
         removed
     }
 
@@ -130,15 +168,17 @@ impl Store {
     fn remove_with_descendants_report(&mut self, key: &[u8]) -> (bool, bool) {
         let exact = self.remove_entry(key);
         let mut any = exact;
-        let (s, e) = descendants_range(key);
-        let doomed: Vec<Vec<u8>> = self
-            .map
-            .range((s, e))
-            .map(|(k, _)| k.as_ref().to_vec())
-            .collect();
-        for d in &doomed {
-            self.remove_entry(d);
-            any = true;
+        if self.has_descendants(key) {
+            let (s, e) = descendants_range(key);
+            let doomed: Vec<Vec<u8>> = self
+                .map
+                .range((s, e))
+                .map(|(k, _)| k.as_ref().to_vec())
+                .collect();
+            for d in &doomed {
+                self.remove_entry(d);
+                any = true;
+            }
         }
         (exact, any)
     }
@@ -148,6 +188,9 @@ impl Store {
     }
 
     pub fn descendant_keys(&self, key: &[u8]) -> Vec<Vec<u8>> {
+        if !self.has_descendants(key) {
+            return Vec::new();
+        }
         let (s, e) = descendants_range(key);
         self.map
             .range((s, e))
@@ -331,24 +374,31 @@ impl Store {
     pub fn clear(&mut self) {
         self.map.clear();
         self.hash.clear();
+        self.parents.clear();
     }
 
 
     pub fn count(&self, prefix: Option<&[u8]>) -> usize {
         let pfx: &[u8] = prefix.unwrap_or(b"");
         let mut count = 0;
-        for (k, v) in &self.map {
-            if is_raw_key(k) {
+        let mut add_leaf = |key: &[u8], value: &[u8]| {
+            if value.first() == Some(&b'{') && !is_envelope(value) {
+                let mut fields = Vec::new();
+                Self::split_leaf(key, value, pfx, &mut fields);
+                count += fields.len();
+            } else if under_prefix(key, pfx) {
+                count += 1;
+            }
+        };
+        for (key, value) in self.ancestor_entries(pfx) {
+            add_leaf(&key, &value);
+        }
+        let (start, end) = prefix_bounds(pfx, b"");
+        for (key, value) in self.map.range((start, end)) {
+            if is_raw_key(key) {
                 continue;
             }
-            let leaf_is_ancestor = !k.starts_with(pfx) && pfx.starts_with(k.as_ref());
-            if !under_prefix(k, pfx) && !leaf_is_ancestor {
-                continue;
-            }
-            if v.first() == Some(&b'{') && !is_envelope(v) {
-                return self.all(prefix).len();
-            }
-            count += 1;
+            add_leaf(key, value);
         }
         count
     }
@@ -364,6 +414,10 @@ impl Store {
 
     pub fn get_shared(&self, key: &[u8]) -> Option<Arc<[u8]>> {
         self.hash.get(key).cloned()
+    }
+
+    pub fn get_key_arc(&self, key: &[u8]) -> Option<Arc<[u8]>> {
+        self.map.get_key_value(key).map(|(k, _)| Arc::clone(k))
     }
 
     fn ancestor_entries(&self, prefix: &[u8]) -> Vec<(Arc<[u8]>, Arc<[u8]>)> {

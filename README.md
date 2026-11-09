@@ -80,12 +80,22 @@
 - [x] **TypeScript types** — first-class `index.d.ts`
 - [x] **Prebuilt binaries** — Linux (glibc/musl), macOS (x64/arm64), Windows (x64); no compilation on install
 
+### New in v2.1.1
+
+- [x] **Index integrity** — parent replacement and subtree deletion remove descendant index entries
+- [x] **WAL-first writes** — WAL append happens before store/index mutation; an I/O error no longer leaves a silently mutated database
+- [x] **Parent-count fast path** — leaf writes/deletes skip descendant B-tree scans
+- [x] **Direct WAL encoding** — set/delete frames written without an intermediate `Op`, fewer key/value copies
+- [x] **`count(prefix)`** — prefix-bounded counting instead of a full-map fallback
+- [x] **Shared index keys** — one `Arc` key allocation per leaf update across all secondary indexes
+- [x] **`deleteMany()` parity** — same native/fallback results; batch delete no longer creates 1,000 JS objects per chunk
+
 ### New in v2.1.0
 
-- [x] **O(1) index maintenance** — reverse key map + contiguous buckets; no full index scan on updates
+- [x] **O(1) index maintenance** — reverse key map + contiguous buckets
 - [x] **Shared JSON parsing** — one parse per document for all indexes
 - [x] **Prefix-bounded scans** — `page`, `scan`, `all` stop at the prefix boundary
-- [x] **Lower memory** — shared `Arc` keys in the store, shared indexed values, `Arc`-shared compaction snapshots
+- [x] **Lower memory** — shared `Arc` keys, shared indexed values, `Arc`-shared compaction snapshots
 - [x] **Bulk APIs** — `getMany()`, `setMany()`, `scanSync()`
 - [x] **Crate layout** — `crates/core` and `crates/napi` (package names unchanged)
 
@@ -93,56 +103,79 @@
 
 ## Benchmarks
 
-### 2.1.0 engine improvements
+### 2.1.0 → 2.1.1 engine improvements
 
-Measured on the same harness before/after; raw JSON in [`benchmarks/results/2.1/`](benchmarks/results/2.1/). The 2.0.1 column is the published MSVC prebuild; the 2.1.0 column is the local GNU build, so absolute cross-toolchain values are indicative and the ratios are the meaningful result.
+Raw JSON: [`benchmarks/results/2.1.1/`](benchmarks/results/2.1.1/). The 2.1.0 column is the previous local GNU build, 2.1.1 is the current local GNU build; ratios are the meaningful figure.
 
-| Focus | 2.0.1 | 2.1.0 | Gain |
+| Focus | 2.1.0 | 2.1.1 | Delta |
 |---|---:|---:|---:|
-| Indexed insert, 100k docs, 5 indexes | 263 ops/s | 93 366 ops/s | **355x** |
-| Indexed update, 100k docs, 5 indexes | 613 ops/s | 46 174 ops/s | **75x** |
-| Update P50 / P95 / P99 (100k) | 319 / 702 / 1 025 µs | 19.6 / 25.5 / 40.8 µs | up to **20x** |
-| Prefix scan 0.1% of 1M keys | 57.2 ms | 0.60 ms | **95x** |
-| Prefix scan 1% of 1M keys | 37.2 ms | 7.72 ms | **4.8x** |
-| Prefix scan 10% of 1M keys | 151 ms | 65.8 ms | **2.3x** |
-| Compaction peak RSS (50k × 4 KB) | 643 MB | 420 MB | **-34.7%** |
-| Compaction time (50k × 4 KB) | 1 086 ms | 858 ms | **-21%** |
-| Indexed insert overhead vs no index | ×641 | ×1.85 | — |
+| Indexed insert, 100k docs, 5 indexes | 93 366 ops/s | **122 696 ops/s** | **+31.4%** |
+| Indexed update, 100k docs, 5 indexes | 46 174 ops/s | **53 708 ops/s** | **+16.3%** |
+| Update P50 / P95 / P99 (100k) | 19.6 / 25.5 / 40.8 µs | **16.9 / 21.2 / 28.4 µs** | P99 **-30.4%** |
+| Indexed lookup (10k results) | 6.56 ms | **4.17 ms** | **-36.4%** |
+| Index range (1k results) | 5.02 ms | **3.04 ms** | **-39.4%** |
+| Indexed insert overhead vs no index | ×1.85 | **×1.35** | under the 1.5× target |
+| Compaction peak RSS (50k × 4 KB) | 420 MB | **121 MB** | **-71.2%** |
+| Compaction time (50k × 4 KB) | 858 ms | **165 ms** | **-80.8%** |
+| Prefix scan 0.1% / 1% / 10% (1M keys) | 0.60 / 7.72 / 65.8 ms | 0.61 / 7.56 / 65.7 ms | flat (targets not reached) |
 
-### Standard workloads — 2.1.0
+### 2.1.1 targets check
 
-Median of 3 runs on Windows, Node.js 26.4.0, 8 logical cores, 100,000 keys, ~185-byte JSON values. SQLite uses WAL + `synchronous=NORMAL`; LMDB uses its default sync mode; spectre.db runs the local 2.1.0 build with `autoSave: 0` (no background compaction). Higher is better (ops/s).
+| Metric | Target | Achieved | Status |
+|---|---:|---:|:--|
+| Single write | 130k/s | 118 125/s | close |
+| Batch write | 350k/s | 344 583/s | close |
+| Random read | 680k/s | 716 800/s | met |
+| Batch read | 1.30M/s | 1 218 256/s | close |
+| Full scan | 1.55M/s | 1 636 249/s | met |
+| Mixed workload | 350k/s | 336 144/s | close |
+| DeleteMany | 800k/s | 821 717/s | met |
+| Indexed insert | 130k/s | 122 696/s | close |
+| Indexed update | 65k/s | 53 708/s | not met |
+| Update P50 | 15 µs | 16.9 µs | close |
+| Update P99 | 25 µs | 28.4 µs | close |
+| Lookup 10k | 4 ms | 4.17 ms | close |
+| Range 1k | 3 ms | 3.04 ms | close |
+| 5-index overhead | <1.5× | 1.35× | met |
+| Compaction peak RSS | 300 MB | 121 MB | met |
+| Compaction time | 650 ms | 165 ms | met |
+
+Allocation and large-delete memory targets were not instrumented in this cycle and remain open.
+
+### Standard workloads — 2.1.1
+
+Median of 3 runs on Windows, Node.js 26.4.0, 8 logical cores, 100,000 keys, ~185-byte JSON values. SQLite uses WAL + `synchronous=NORMAL`; LMDB uses its default sync mode; spectre.db runs the local 2.1.1 build with `autoSave: 0`. Higher is better (ops/s).
 
 | Workload | spectre.db | SQLite | LMDB | Winner |
 |---|---:|---:|---:|---|
-| write (single op) | **108 104** | 21 775 | 5 829 | spectre.db |
-| write (batch of 1,000) | **272 581** | 267 826 | 106 055 | spectre.db |
-| read (random) | **655 303** | 173 883 | 591 864 | spectre.db |
-| read (batch of 1,000) | **1 061 829** | 176 925 | 322 415 | spectre.db |
-| scan (full prefix) | 1 484 578 | 937 937 | **1 512 196** | LMDB (1.8%) |
-| count (queries/s, 100k keys) | **298** | 122 | 141 | spectre.db |
-| count (entries/s) | **29 794 714** | 12 216 068 | 14 053 905 | spectre.db |
-| mixed 80/20 | **289 964** | 59 583 | 28 062 | spectre.db |
-| delete (batched) | **581 126** | 236 320 | 160 831 | spectre.db |
+| write (single op) | **118 125** | 25 096 | 5 907 | spectre.db |
+| write (batch of 1,000) | **344 583** | 305 901 | 111 289 | spectre.db |
+| read (random) | **716 800** | 180 006 | 635 332 | spectre.db |
+| read (batch of 1,000) | **1 218 256** | 182 469 | 377 864 | spectre.db |
+| scan (full prefix) | **1 636 249** | 1 081 143 | 1 558 778 | spectre.db |
+| count (queries/s, 100k keys) | **296** | 131 | 148 | spectre.db |
+| count (entries/s) | **29 567 516** | 13 149 607 | 14 837 037 | spectre.db |
+| mixed 80/20 | **336 144** | 64 163 | 27 945 | spectre.db |
+| delete (batched) | **821 717** | 258 359 | 176 214 | spectre.db |
 | on-disk size | 21.5 MB | 21.1 MB | 35.8 MB | — |
 
-spectre.db wins 7/8 workloads against LMDB. The full scan is 1.8% behind LMDB and flips with run-to-run variance. `deleteMany()` plus batch flag computation recovered bulk delete: the previous generic `transaction` path was paying one existence check and 1,000 JavaScript operation objects per batch.
+spectre.db wins 9/9 workloads against LMDB in this run. Count is flat versus 2.1.0 (-0.7%) and within run-to-run variance.
 
-### 2.0.1 → 2.1.0
+### 2.1.0 → 2.1.1 standard workloads
 
-| Workload | 2.0.1 | 2.1.0 | Delta |
+| Workload | 2.1.0 | 2.1.1 | Delta |
 |---|---:|---:|---:|
-| write (single op) | 117 176 | 108 104 | -7.7%* |
-| write (batch of 1,000) | 244 365 | 272 581 | +11.5% |
-| read (random) | 640 771 | 655 303 | +2.3% |
-| read (batch of 1,000) | 1 070 848 | 1 061 829 | -0.8% |
-| scan (full prefix) | 1 404 492 | 1 484 578 | +5.7% |
-| count (queries/s) | 276 | 298 | +8.0% |
-| count (entries/s) | 27 648 827 | 29 794 714 | +7.8% |
-| mixed 80/20 | 283 742 | 289 964 | +2.2% |
-| delete (batched) | 414 003 | 581 126 | **+40.4%** |
+| write (single op) | 108 104 | 118 125 | **+9.3%** |
+| write (batch of 1,000) | 272 581 | 344 583 | **+26.4%** |
+| read (random) | 655 303 | 716 800 | **+9.4%** |
+| read (batch of 1,000) | 1 061 829 | 1 218 256 | **+14.7%** |
+| scan (full prefix) | 1 484 578 | 1 636 249 | **+10.2%** |
+| count (queries/s) | 298 | 296 | -0.7%* |
+| count (entries/s) | 29 794 714 | 29 567 516 | -0.8%* |
+| mixed 80/20 | 289 964 | 336 144 | **+15.9%** |
+| delete (batched) | 581 126 | 821 717 | **+41.4%** |
 
-\* Single-write variance: an earlier 2.1.0 run measured 117 311 ops/s (+0.1%); the difference is toolchain/thermal. Delete uses the new native `deleteMany()` path. The large structural gains remain index maintenance (×355 insert, ×75 update), prefix scans (up to ×95) and compaction (-35% peak RSS), documented above.
+\* Count is statistically flat within thermal variance. The large structural gains are index maintenance, WAL-first writes, bulk delete and compaction.
 
 Raw results: [`benchmarks/results/`](benchmarks/results/). Reproduce:
 
@@ -150,7 +183,7 @@ Raw results: [`benchmarks/results/`](benchmarks/results/). Reproduce:
 cd benchmarks
 npm install
 npm run bench                          # published @sexfy/spectre.db baseline
-SPECTRE_BENCH_LOCAL=1 node bench.js    # local build (2.1.0+)
+SPECTRE_BENCH_LOCAL=1 node bench.js    # local build (2.1.1+)
 ```
 
 On Windows PowerShell: `$env:SPECTRE_BENCH_LOCAL=1; node bench.js`.
