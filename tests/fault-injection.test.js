@@ -45,13 +45,14 @@ setTimeout(() => process.exit(0), 400);
 
 `;
 
-function crashWorker(dbPath, point, mode) {
+function crashWorker(dbPath, point, mode, compactMode) {
   return spawnSync(process.execPath, ['-e', WORKER], {
     env: {
       ...process.env,
       SPECTRE_DB_PATH: dbPath,
       SPECTRE_CRASH_AT: point,
       SPECTRE_CRASH_MODE: mode || 'write',
+      SPECTRE_COMPACT_MODE: compactMode || 'auto',
       SPECTRE_FORCE_FALLBACK: '',
     },
     timeout: 15000,
@@ -62,7 +63,7 @@ function expectCrash(res) {
   if (process.platform === 'win32') {
     expect(res.status).not.toBe(0);
   } else {
-    expect([null, 'SIGABRT', 134]).toContain(res.status === 0 ? null : (res.signal || res.status));
+    expect(res.signal === 'SIGABRT' || res.status === 134 || res.status === -1073741819).toBe(true);
   }
 }
 
@@ -101,7 +102,11 @@ D('fault injection: kill -9 at instrumented points', () => {
     // (the worker exits normally), so only the WAL points run there.
     if (WIN && point !== 'wal_after_write') return;
     const { dir, dbPath } = fresh(point);
-    const res = crashWorker(dbPath, point + ':2', 'compact');
+    const base = new Database(dbPath);
+    base.set('base', 'snapshot');
+    base.close();
+    const crashAt = point.startsWith('wal_') ? point + ':2' : point;
+    const res = crashWorker(dbPath, crashAt, 'compact');
 
 
     expectCrash(res);
@@ -112,6 +117,7 @@ D('fault injection: kill -9 at instrumented points', () => {
       expect(db.get('a')).toBe(1);
       expect(db.get('b')).toBe(2);
       expect([null, 3]).toContain(db.get('c'));
+      expect(db.get('base')).toBe('snapshot');
       const st = db.stats();
       expect(st.recoveryCount).toBeGreaterThanOrEqual(0);
     } finally {
@@ -125,16 +131,20 @@ D('fault injection: kill -9 at instrumented points', () => {
     // Segment crash points are not observable on Windows (worker exits normally).
     if (WIN) return;
     const { dir, dbPath } = fresh(point);
-    const res = crashWorker(dbPath, point, 'compact');
+    const base = new Database(dbPath, { compactMode: 'segments' });
+    for (let i = 0; i < 10; i++) base.set('base.' + i, i);
+    base.close();
+    const res = crashWorker(dbPath, point, 'compact', 'segments');
     expectCrash(res);
     const db = recover(dbPath);
     try {
       expect(db.get('a')).toBe(1);
       expect(db.get('b')).toBe(2);
       expect(db.get('c')).toBe(3);
+      expect(db.get('base.9')).toBe(9);
 
 
-      expect(db.count()).toBe(3);
+      expect(db.count()).toBe(13);
     } finally {
       db.close().catch(() => {});
       setTimeout(() => fs.rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }), 200);
@@ -162,6 +172,26 @@ D('fault injection: kill -9 at instrumented points', () => {
       expect(db.stats().durability).toBe('durable');
     } finally {
       db.close().catch(() => {});
+      setTimeout(() => fs.rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }), 200);
+    }
+  });
+
+  test('writes after a torn WAL tail survive a second reopen', () => {
+    const { dir, dbPath } = fresh('torn2');
+    const wal = dbPath.replace(/\.(db|json|snapshot)$/i, '') + '.spwal';
+    let db = new Database(dbPath);
+    db.set('a', 1);
+    db.close();
+    fs.appendFileSync(wal, Buffer.from([1, 4, 0, 0, 0, 0xAB, 0xCD]));
+    db = new Database(dbPath);
+    db.set('b', 2);
+    db.close();
+    const db2 = new Database(dbPath);
+    try {
+      expect(db2.get('a')).toBe(1);
+      expect(db2.get('b')).toBe(2);
+    } finally {
+      db2.close().catch(() => {});
       setTimeout(() => fs.rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }), 200);
     }
   });

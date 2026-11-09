@@ -7,10 +7,10 @@ pub const MAX_VALUE_SIZE: usize = 10 * 1024 * 1024;
 const FORBIDDEN_SEGMENTS: [&str; 3] = ["__proto__", "constructor", "prototype"];
 
 pub fn is_sensitive_key(key: &str) -> bool {
-    let lower = key.to_ascii_lowercase();
-    for prefix in ["password", "secret", "token", "apikey", "api_key", "private"] {
-        if let Some(rest) = lower.strip_prefix(prefix) {
-            if rest.is_empty() || rest.starts_with('.') || rest.starts_with('_') {
+    for part in key.split('.') {
+        let lower = part.to_ascii_lowercase();
+        for prefix in ["password", "secret", "token", "apikey", "api_key", "private"] {
+            if lower == prefix || lower.starts_with(&format!("{}_", prefix)) {
                 return true;
             }
         }
@@ -193,7 +193,9 @@ mod tests {
         assert!(is_sensitive_key("password.holder"));
         assert!(is_sensitive_key("API_KEY.id"));
         assert!(is_sensitive_key("token"));
-        assert!(!is_sensitive_key("user.password"));
+        assert!(is_sensitive_key("user.password"));
+        assert!(is_sensitive_key("user.token.value"));
+        assert!(!is_sensitive_key("user.passwordHash"));
         assert!(!is_sensitive_key("passwords"));
         assert!(!is_sensitive_key("username"));
         assert!(!is_sensitive_key("tokenBucket"));

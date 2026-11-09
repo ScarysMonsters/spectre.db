@@ -2,6 +2,18 @@
 
 spectre.db is the same project as spectre.db 1.x by ScarysMonsters, rewritten in Rust. It is not a fork: v2 keeps the same API and JSON compatibility while replacing the JavaScript engine with a native Rust core.
 
+## Unreleased
+
+### Reliability (review follow-up)
+- **WAL tail truncation**: a truncated/invalid WAL tail is now copied to `*.spwal.corrupt`, truncated to the last valid frame, and synced before appending new writes.
+- **Safe backup rotation**: the current snapshot is copied to `.1.bak` instead of being renamed away; a crash between rotation and snapshot rename no longer loses the previous snapshot. Missing snapshots are restored from backup on open.
+- **Directory fsync**: snapshot/manifest renames, WAL creation and WAL reset sync the parent directory on Unix; `durable` mode syncs the WAL after reset.
+- **Batch encryption**: `setMany`/`transaction`/`batch` now encrypt sensitive keys instead of writing plaintext. Sensitive keys are detected on any dotted segment (`user.password` is now encrypted).
+- **Crash tests made meaningful**: crash tests require an actual abort, hit snapshot points on a pre-existing snapshot, and cover `seg_written`/`man_before_rename` with a segmented base. Added a torn-WAL reopen test and a batch-encryption test.
+- Tests: 95 Rust core, 36 Jest, 9 fallback, 9 fault-injection, smoke OK.
+
+Still to address from the review: segment full-checkpoint ordering, WAL truncation after segment compaction, lock/PID and event-loop behavior, native fallback diagnostics, decoder panics/fuzzing, migrate backup, differential native/fallback tests, index/query semantics, NFC keys, and benchmark methodology.
+
 ## 2.1.1 (2026-11-09)
 
 Stability & Performance release. No on-disk format change and no public API break: v1.1.0 (JSON) and v2.1.x (binary) databases open unchanged.

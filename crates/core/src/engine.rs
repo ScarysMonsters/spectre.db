@@ -314,6 +314,12 @@ impl Engine {
                     self.restore_from_backup()?;
                 }
             }
+        } else {
+            let backup = self.paths.backup_path(1, self.mode == FormatMode::V2);
+            if backup.exists() {
+                self.push_warn("Snapshot missing, restoring from backup".into());
+                self.restore_from_backup()?;
+            }
         }
         self.snapshot_bytes = std::fs::metadata(&snap_path).map(|m| m.len()).unwrap_or(0);
 
@@ -335,7 +341,7 @@ impl Engine {
                     FormatMode::V2 => formats::replay_wal(&bytes),
                     FormatMode::Json => {
                         let (ops, warns) = json_compat::decode_json_wal(&bytes);
-                        WalReplay { ops, warns, header: None, last_lsn: 0 }
+                        WalReplay { ops, warns, header: None, last_lsn: 0, valid_len: 0 }
                     }
                 };
                 if let Some(h) = &replay.header {
@@ -350,6 +356,27 @@ impl Engine {
                 }
                 if replay.warns > 0 {
                     self.push_warn(format!("{} invalid WAL entries skipped", replay.warns));
+                }
+                if self.mode == FormatMode::V2 && replay.valid_len < bytes.len() {
+                    let corrupt_path = wal_path.with_extension("spwal.corrupt");
+                    let _ = std::fs::copy(&wal_path, &corrupt_path);
+                    let file = OpenOptions::new()
+                        .write(true)
+                        .open(&wal_path)
+                        .map_err(|e| SpectreError::write_failed(format!("Failed to open WAL for truncation: {}", e)))?;
+                    file.set_len(replay.valid_len as u64)
+                        .map_err(|e| SpectreError::write_failed(format!("Failed to truncate WAL: {}", e)))?;
+                    if self.opts.durability == Durability::Durable {
+                        let _ = file.sync_all();
+                    }
+                    drop(file);
+                    sync_dir(&wal_path);
+                    self.push_warn(format!(
+                        "Truncated invalid WAL tail: kept {} of {} bytes (copy at {})",
+                        replay.valid_len,
+                        bytes.len(),
+                        corrupt_path.display()
+                    ));
                 }
             }
         }
@@ -486,7 +513,6 @@ impl Engine {
             .map_err(|e| SpectreError::write_failed(format!("Failed to open WAL: {}", e)))?;
         self.wal_file = Some(f);
         if needs_header {
-
             let header = formats::encode_wal3_header(self.wal_gen, self.last_lsn);
             if let Some(f) = self.wal_file.as_mut() {
                 let _ = f.write_all(&header);
@@ -494,6 +520,7 @@ impl Engine {
                     let _ = f.sync_data();
                 }
             }
+            sync_dir(&wal_path);
         }
         Ok(())
     }
@@ -648,10 +675,35 @@ impl Engine {
     }
 
 
+    fn encrypt_batch_ops(&self, ops: Vec<Op>) -> Result<Vec<Op>> {
+        let Some(enc_key) = &self.enc_key else {
+            return Ok(ops);
+        };
+        let mut out = Vec::with_capacity(ops.len());
+        for op in ops {
+            match op {
+                Op::Set { key, value } => {
+                    let text = std::str::from_utf8(&key)
+                        .map_err(|_| SpectreError::invalid_key("Non-UTF-8 key in batch"))?;
+                    let value = if validator::is_sensitive_key(text) && value.as_ref() != b"null" {
+                        crypto::encrypt_value(&value, enc_key)?.into_boxed_slice()
+                    } else {
+                        value
+                    };
+                    out.push(Op::Set { key, value });
+                }
+                Op::Batch(sub) => out.push(Op::Batch(self.encrypt_batch_ops(sub)?)),
+                other => out.push(other),
+            }
+        }
+        Ok(out)
+    }
+
     pub fn batch(&mut self, ops: Vec<Op>) -> Result<Vec<bool>> {
         self.check_open()?;
         self.checkpoint_gate()?;
         validate_batch_ops(&ops)?;
+        let ops = self.encrypt_batch_ops(ops)?;
         self.wal_append_batch(&ops)?;
         let mut flags = Vec::with_capacity(ops.len());
         let track_indexes = !self.indexes.is_empty();
@@ -1118,8 +1170,6 @@ impl Engine {
     // snapshot file, rotate `.bak*` copies, then truncate the WAL (all its
     // content ships inside the new snapshot by construction).
     fn compact_legacy(&mut self) -> Result<()> {
-        self.rotate_backups()?;
-
         let bytes = match self.mode {
             FormatMode::V2 => formats::write_snapshot_ex(&self.store, self.opts.compression, self.snap_key()),
             FormatMode::Json => json_compat::write_json_snapshot(&self.store, self.opts.compress)?,
@@ -1129,7 +1179,25 @@ impl Engine {
             FormatMode::Json => self.paths.snapshot_path(),
         };
         let tmp = unique_tmp(&snap_path);
-        write_file_atomic(&tmp, &bytes, &snap_path, Some("snap_before_rename"))?;
+        let write_tmp = |path: &std::path::Path| -> Result<()> {
+            let mut file = File::create(path)
+                .map_err(|e| SpectreError::io(e, "Failed to write snapshot"))?;
+            file.write_all(&bytes)
+                .map_err(|e| SpectreError::io(e, "Failed to write snapshot"))?;
+            file.sync_all()
+                .map_err(|e| SpectreError::io(e, "Failed to sync snapshot"))?;
+            Ok(())
+        };
+        if let Err(error) = write_tmp(&tmp) {
+            let _ = std::fs::remove_file(&tmp);
+            return Err(error);
+        }
+        self.crash_point("snap_tmp_written");
+        self.rotate_backups()?;
+        self.crash_point("snap_before_rename");
+        std::fs::rename(&tmp, &snap_path)
+            .map_err(|e| SpectreError::io(e, "Failed to rename snapshot"))?;
+        sync_dir(&snap_path);
         self.snapshot_bytes = bytes.len() as u64;
         self.crash_point("snap_after_rename");
 
@@ -1180,6 +1248,12 @@ impl Engine {
         }
         self.wal_ops = 0;
         self.wal_bytes = 0;
+        if self.opts.durability == Durability::Durable {
+            if let Some(file) = self.wal_file.as_mut() {
+                let _ = file.sync_all();
+            }
+        }
+        sync_dir(&wal_path);
         Ok(())
     }
 
@@ -1295,7 +1369,8 @@ impl Engine {
             let src = if gen == 1 { snapshot.clone() } else { self.paths.backup_path(gen - 1, v2) };
             let dst = self.paths.backup_path(gen, v2);
             if src.exists() {
-                let _ = std::fs::rename(&src, &dst);
+                std::fs::copy(&src, &dst)
+                    .map_err(|e| SpectreError::io(e, "Failed to rotate backup"))?;
             }
         }
         Ok(())
@@ -1752,6 +1827,7 @@ fn write_file_atomic(
             }
             std::fs::rename(tmp, target)
                 .map_err(|e| SpectreError::io(e, "Failed to rename snapshot"))?;
+            sync_dir(target);
             Ok(())
         }
         Err(e) => {
@@ -1760,6 +1836,18 @@ fn write_file_atomic(
         }
     }
 }
+
+#[cfg(unix)]
+fn sync_dir(path: &std::path::Path) {
+    if let Some(dir) = path.parent() {
+        if let Ok(file) = File::open(dir) {
+            let _ = file.sync_all();
+        }
+    }
+}
+
+#[cfg(not(unix))]
+fn sync_dir(_path: &std::path::Path) {}
 
 fn validate_batch_ops(ops: &[Op]) -> Result<()> {
     for op in ops {

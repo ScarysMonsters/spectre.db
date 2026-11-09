@@ -87,6 +87,7 @@ pub struct WalReplay {
 
     pub header: Option<WalHeader>,
     pub last_lsn: u64,
+    pub valid_len: usize,
 }
 
 #[derive(Debug, Clone)]
@@ -455,6 +456,7 @@ pub fn replay_wal(bytes: &[u8]) -> WalReplay {
         let base_lsn = u64::from_le_bytes(bytes[20..28].try_into().unwrap());
         let mut out = WalReplay {
             header: Some(WalHeader { version, generation, base_lsn }),
+            valid_len: WAL3_HEADER_LEN,
             ..Default::default()
         };
         let mut off = WAL3_HEADER_LEN;
@@ -501,6 +503,7 @@ pub fn replay_wal(bytes: &[u8]) -> WalReplay {
                 }
             }
             off = end;
+            out.valid_len = off;
         }
         if off < bytes.len() && out.warns == 0 {
             out.warns += 1;
@@ -508,7 +511,7 @@ pub fn replay_wal(bytes: &[u8]) -> WalReplay {
         out
     } else {
         let (ops, warns) = decode_wal(bytes);
-        WalReplay { ops, warns, header: None, last_lsn: 0 }
+        WalReplay { ops, warns, header: None, last_lsn: 0, valid_len: bytes.len() }
     }
 }
 

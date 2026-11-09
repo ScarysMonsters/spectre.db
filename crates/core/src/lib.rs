@@ -215,6 +215,38 @@ mod tests {
     }
 
     #[test]
+    fn encryption_sensitive_keys_batch() {
+        use crate::formats::Op;
+        let dir = tmpdir("encbatch");
+        let path = dir.join("encbatch.db");
+        let o = EngineOptions { encryption_key: Some(b"my-secret".to_vec()), ..opts() };
+        let mut db = Engine::open(&path, o).unwrap();
+        db.batch(vec![
+            Op::Set {
+                key: b"user.password".to_vec(),
+                value: br#""SECRET_BATCH""#.to_vec().into_boxed_slice(),
+            },
+            Op::Set {
+                key: b"token.a".to_vec(),
+                value: br#""SECRET_TOKEN""#.to_vec().into_boxed_slice(),
+            },
+        ])
+        .unwrap();
+        let wal = std::fs::read(dir.join("encbatch.spwal")).unwrap();
+        let wal_text = String::from_utf8_lossy(&wal);
+        assert!(!wal_text.contains("SECRET_BATCH"));
+        assert!(!wal_text.contains("SECRET_TOKEN"));
+        assert_eq!(db.get("user.password").unwrap().unwrap(), br#""SECRET_BATCH""#.to_vec());
+        assert_eq!(db.get("token.a").unwrap().unwrap(), br#""SECRET_TOKEN""#.to_vec());
+        db.close().unwrap();
+        let raw = std::fs::read(dir.join("encbatch.spdb")).unwrap();
+        let text = String::from_utf8_lossy(&raw);
+        assert!(!text.contains("SECRET_BATCH"));
+        assert!(!text.contains("SECRET_TOKEN"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn lock_blocks_second_process_semantics() {
         let dir = tmpdir("lock");
         let path = dir.join("l.json");
