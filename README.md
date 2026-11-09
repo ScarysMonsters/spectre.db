@@ -115,7 +115,26 @@ Cross-version medians on the standard 100k-key harness (Node.js 26, Windows, 3 r
 | mixed 80/20 | 172 736 | 283 742 | 289 964 | **336 144** |
 | delete (batched) | 321 517 | 414 003 | 581 126 | **821 717** |
 
-2.1.1 is fastest on 8/9 standard workloads (count is flat within variance). On the latest run it also beats LMDB and SQLite on all 9 workloads; full engine comparison tables remain in `benchmarks/results/2.1.1/`.
+2.1.1 is fastest on 8/9 standard workloads (count is flat within variance).
+
+### 2.1.1 vs SQLite and LMDB (100k standard, ops/s)
+
+Same 3-run harness and dataset. SQLite uses WAL + `synchronous=NORMAL`; LMDB uses its default sync mode; spectre.db 2.1.1 uses `durability: "process"`. Higher is better.
+
+| Workload | **spectre.db 2.1.1** | SQLite | LMDB | Winner |
+|---|---:|---:|---:|---|
+| write (single) | **118 125** | 25 096 | 5 907 | spectre.db |
+| write (batch 1 000) | **344 583** | 305 901 | 111 289 | spectre.db |
+| read (random) | **716 800** | 180 006 | 635 332 | spectre.db |
+| read (batch 1 000) | **1 218 256** | 182 469 | 377 864 | spectre.db |
+| scan (full prefix) | **1 636 249** | 1 081 143 | 1 558 778 | spectre.db |
+| count (queries/s) | **296** | 131 | 148 | spectre.db |
+| count (entries/s) | **29 567 516** | 13 149 607 | 14 837 037 | spectre.db |
+| mixed 80/20 | **336 144** | 64 163 | 27 945 | spectre.db |
+| delete (batched) | **821 717** | 258 359 | 176 214 | spectre.db |
+| on-disk size | **21.5 MB** | 21.1 MB | 35.8 MB | — |
+
+spectre.db wins **9/9** standard workloads against both engines in this run. In `durability: "durable"` mode the trade-off changes: LMDB keeps the single-write and mixed-write lead (per-op fsync vs. LMDB's asynchronous flush), while spectre.db wins bulk reads, count, delete and batch ingestion. Raw engine summaries are in `benchmarks/results/2.1.1/standard-2.1.1-100k.json`.
 
 ### Index, prefix and compaction — all versions
 
