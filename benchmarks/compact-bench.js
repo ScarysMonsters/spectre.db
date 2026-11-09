@@ -12,7 +12,11 @@ if (!packagePath || !dataDir) {
 
 const { Database, version, hasNativeEngine } = require(packagePath);
 const N = Number(process.env.COMPACT_N || 50000);
-const VALUE = 'x'.repeat(Number(process.env.COMPACT_VALUE || 4096));
+const VALUE_BYTES = Number(process.env.COMPACT_VALUE || 4096);
+const VALUE_MODE = process.env.COMPACT_VALUE_MODE || 'random';
+const VALUE = VALUE_MODE === 'repeat'
+  ? 'x'.repeat(VALUE_BYTES)
+  : require('crypto').randomBytes(Math.ceil(VALUE_BYTES / 2)).toString('hex').slice(0, VALUE_BYTES);
 const BATCH = 1000;
 
 function cleanup(dir) {
@@ -80,6 +84,7 @@ const ms = (t) => Number(process.hrtime.bigint() - t) / 1e6;
     native: hasNativeEngine,
     n: N,
     valueBytes: VALUE.length,
+    valueMode: VALUE_MODE,
     insertMs,
     insertOps: Math.round((N / insertMs) * 1000),
     compactMs,

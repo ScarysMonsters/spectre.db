@@ -16,9 +16,12 @@ spectre.db is the same project as spectre.db 1.x by ScarysMonsters, rewritten in
 - **Background compaction diagnostics**: timer failures emit `warn` (or console) instead of being swallowed; `close()` is retryable if the native close fails.
 - **Fallback diagnostics**: `db.engine` reports `native`/`fallback`, `db.nativeLoadError` exposes the native load failure, and a `warn` event is emitted when the JS fallback is selected implicitly.
 - **Snapshot decode guard**: a decompressed snapshot body shorter than its 8-byte count header now fails as corrupted instead of panicking.
-- Tests: 95 Rust core, 37 Jest, 10 fallback, 9 fault-injection, smoke OK.
+- **Lock ownership**: a lock file carrying our own PID is only treated as stale when this process is not holding that path. This fixes stale PID 1 locks after container restarts without deleting an active same-process lock.
+- **Differential tests**: added a native/fallback test comparing CRUD, dot-path values, `setMany`/`getMany`/`deleteMany` equivalents, `all()` and deletes.
+- **Compaction benchmark**: `compact-bench.js` now uses incompressible random values by default (`COMPACT_VALUE_MODE=repeat` for the old behavior), so RSS/disk figures are not distorted by compression.
+- Tests: 96 Rust core, 38 Jest, 10 fallback, 9 fault-injection, smoke OK.
 
-Still to address from the review: lock/PID ownership and blocking constructor, `compactAsync` legacy path contention, native fallback parity tests, differential native/fallback tests, decoder fuzzing, migrate backup, index/query semantics (A1–A5), NFC keys, and benchmark methodology.
+Still to address from the review: OS-level advisory locking and blocking constructor/`compactAsync` legacy contention, broader differential coverage, decoder fuzzing, migrate backup, index/query semantics (A2–A5), NFC keys, and the synthetic standard benchmark values.
 
 ## 2.1.1 (2026-11-09)
 

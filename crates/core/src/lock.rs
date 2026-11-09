@@ -1,11 +1,18 @@
 use crate::error::{Result, SpectreError};
+use std::collections::HashSet;
 use std::fs::{File, OpenOptions};
 use std::io::Write;
 use std::path::PathBuf;
+use std::sync::{LazyLock, Mutex};
 use std::time::{Duration, Instant};
 
 pub const DEFAULT_LOCK_TIMEOUT_MS: u64 = 30_000;
 const POLL_INTERVAL: Duration = Duration::from_millis(100);
+
+// Paths currently locked by this process. A lock file carrying our own PID is
+// only stale if we are not holding that path (e.g. PID 1 after a container
+// restart); this avoids deleting an active same-process lock.
+static HELD: LazyLock<Mutex<HashSet<PathBuf>>> = LazyLock::new(|| Mutex::new(HashSet::new()));
 
 pub struct FileLock {
     path: PathBuf,
@@ -53,25 +60,44 @@ impl FileLock {
     pub fn acquire(&mut self, timeout_ms: u64) -> Result<()> {
         let start = Instant::now();
         loop {
+            let mut held = HELD.lock().unwrap_or_else(|p| p.into_inner());
             match OpenOptions::new().write(true).create_new(true).open(&self.path) {
                 Ok(mut f) => {
-                    f.write_all(format!("{}\n", std::process::id()).as_bytes())
+                    held.insert(self.path.clone());
+                    drop(held);
+                    if let Err(e) = f
+                        .write_all(format!("{}\n", std::process::id()).as_bytes())
                         .and_then(|_| f.sync_all())
-                        .map_err(|e| SpectreError::lock_failed(format!("Failed to acquire lock: {}", e)))?;
+                    {
+                        HELD.lock().unwrap_or_else(|p| p.into_inner()).remove(&self.path);
+                        let _ = std::fs::remove_file(&self.path);
+                        return Err(SpectreError::lock_failed(format!(
+                            "Failed to acquire lock: {}",
+                            e
+                        )));
+                    }
                     self.file = Some(f);
                     return Ok(());
                 }
                 Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
-
+                    let held_here = held.contains(&self.path);
                     let stale = std::fs::read_to_string(&self.path)
                         .ok()
                         .and_then(|content| content.trim().parse::<i32>().ok())
-                        .map(|pid| !pid_alive(pid))
+                        .map(|pid| {
+                            if pid == std::process::id() as i32 {
+                                !held_here
+                            } else {
+                                !pid_alive(pid)
+                            }
+                        })
                         .unwrap_or(false);
                     if stale {
                         let _ = std::fs::remove_file(&self.path);
+                        drop(held);
                         continue;
                     }
+                    drop(held);
                     if start.elapsed().as_millis() as u64 > timeout_ms {
                         return Err(SpectreError::lock_timeout(format!(
                             "Lock acquisition timeout after {}ms",
@@ -89,6 +115,8 @@ impl FileLock {
 
     pub fn release(&mut self) {
         if self.file.take().is_some() {
+            let mut held = HELD.lock().unwrap_or_else(|p| p.into_inner());
+            held.remove(&self.path);
             let _ = std::fs::remove_file(&self.path);
         }
     }
@@ -137,15 +165,28 @@ mod tests {
     }
 
     #[test]
-    fn live_lock_times_out() {
-        let dir = std::env::temp_dir().join(format!("spectre-lock-live-{}", std::process::id()));
+    fn stale_own_pid_is_taken_over() {
+        let dir = std::env::temp_dir().join(format!("spectre-lock-ownpid-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("db.lock");
         std::fs::write(&path, format!("{}\n", std::process::id())).unwrap();
         let mut a = FileLock::new(path.clone());
+        a.acquire(1000).unwrap();
+        a.release();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn live_lock_times_out() {
+        let dir = std::env::temp_dir().join(format!("spectre-lock-live-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("db.lock");
+        let mut holder = FileLock::new(path.clone());
+        holder.acquire(1000).unwrap();
+        let mut a = FileLock::new(path.clone());
         let err = a.acquire(150).unwrap_err();
         assert_eq!(err.code, crate::error::codes::LOCK_TIMEOUT);
-        std::fs::remove_file(&path).unwrap();
+        holder.release();
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
