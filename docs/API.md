@@ -536,13 +536,15 @@ Keys are normalized to Unicode NFC before storage.
 
 ### Sensitive keys
 
-Keys **starting with** `password`, `secret`, `token`, `apikey`, `api_key` or
-`private` (followed by `.`, `_` or end of key) are automatically encrypted with
-AES-256-GCM when `encryptionKey` is set. See [ENCRYPTION.md](./ENCRYPTION.md).
+Any dot-separated key segment that equals or starts with `password`, `secret`,
+`token`, `apikey`, `api_key` or `private` (followed by `_` or the end of the
+segment) is automatically encrypted with AES-256-GCM when `encryptionKey` is
+set. See [ENCRYPTION.md](./ENCRYPTION.md).
 
 ```js
 db.set('password', '...');       // encrypted
-db.set('user.password', '...');  // not auto-encrypted (does not start with the word)
+db.set('user.password', '...');  // encrypted (segment match)
+db.set('user.passwordHash', '...'); // plaintext
 ```
 
 ---

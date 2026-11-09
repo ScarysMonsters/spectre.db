@@ -59,6 +59,10 @@ function normalizePath(filePath) {
     .replace(/\.gz$/i, '');
 }
 
+function normKey(key) {
+  return typeof key === 'string' ? key.normalize('NFC') : key;
+}
+
 function mapLegacyOptions(opts = {}) {
   const mapped = {
     maxCacheSize: 1000,
@@ -253,6 +257,7 @@ class Database extends EventEmitter {
 
   get(key) {
     this._assertOpen();
+    key = normKey(key);
     if (this._engineKind === 'fallback') return this._engine.get(key);
     let raw;
     try {
@@ -269,6 +274,7 @@ class Database extends EventEmitter {
 
   set(key, value) {
     this._assertOpen();
+    key = normKey(key);
     if (this._engineKind === 'fallback') return this._engine.set(key, value);
     if (value === undefined) {
       throw new TypeError('[spectre.db] value must be JSON-serializable: undefined is not supported (v1.1.0 dropped it silently at compaction)');
@@ -303,6 +309,7 @@ class Database extends EventEmitter {
     if (!Array.isArray(keys)) {
       throw new TypeError('[spectre.db] getMany() expects an array of keys');
     }
+    keys = keys.map(normKey);
     if (this._engineKind === 'fallback') return keys.map((key) => this.get(key));
     const doc = ncall(this._engine, 'getManyJson', keys);
     return JSON.parse(doc);
@@ -324,7 +331,7 @@ class Database extends EventEmitter {
     const jsons = new Array(entries.length);
     for (let i = 0; i < entries.length; i++) {
       const entry = entries[i];
-      keys[i] = entry[0];
+      keys[i] = normKey(entry[0]);
       jsons[i] = JSON.stringify(entry[1]);
       results[i] = entry[1];
     }
@@ -334,6 +341,7 @@ class Database extends EventEmitter {
 
   delete(key) {
     this._assertOpen();
+    key = normKey(key);
     if (this._engineKind === 'fallback') return this._engine.delete(key);
     const deleted = ncall(this._engine, 'del', key);
     if (deleted) this.emit('change', { type: 'delete', key });
@@ -345,6 +353,7 @@ class Database extends EventEmitter {
     if (!Array.isArray(keys)) {
       throw new TypeError('[spectre.db] deleteMany() expects an array of keys');
     }
+    keys = keys.map(normKey);
     if (this._engineKind === 'fallback') {
       const { validateKey } = require('./fallback/src/utils/validator');
       for (let i = 0; i < keys.length; i++) {
@@ -399,6 +408,7 @@ class Database extends EventEmitter {
 
   all(prefix) {
     this._assertOpen();
+    if (prefix != null) prefix = normKey(prefix);
     if (this._engineKind === 'fallback') {
 
 
@@ -459,8 +469,8 @@ class Database extends EventEmitter {
   scan(opts = {}) {
     const self = this;
     const pageSize = Math.max(1, opts.pageSize ?? 500);
-    let prefix = opts.prefix;
-    let after = opts.after ?? '';
+    let prefix = opts.prefix != null ? normKey(opts.prefix) : undefined;
+    let after = normKey(opts.after ?? '');
     let budget = opts.limit ?? Infinity;
     let buffer = [];
     let offset = 0;
@@ -491,8 +501,8 @@ class Database extends EventEmitter {
   scanSync(opts = {}) {
     const self = this;
     const pageSize = Math.max(1, opts.pageSize ?? 500);
-    let prefix = opts.prefix;
-    let after = opts.after ?? '';
+    let prefix = opts.prefix != null ? normKey(opts.prefix) : undefined;
+    let after = normKey(opts.after ?? '');
     let budget = opts.limit ?? Infinity;
     let buffer = [];
     let offset = 0;
@@ -518,7 +528,7 @@ class Database extends EventEmitter {
 
 
   cursor(prefix, opts = {}) {
-    const page = this._scanPage(prefix, opts.after ?? '', opts.limit ?? 500);
+    const page = this._scanPage(normKey(prefix), normKey(opts.after ?? ''), opts.limit ?? 500);
     return {
       rows: page.rows.map(([ID, data]) => ({ ID, data })),
       cursor: page.cursor,
@@ -527,6 +537,8 @@ class Database extends EventEmitter {
   }
 
   _scanPage(prefix, after, limit) {
+    if (prefix != null) prefix = normKey(prefix);
+    if (after != null) after = normKey(after);
     if (this._engineKind === 'fallback') {
 
 
@@ -698,7 +710,26 @@ class Database extends EventEmitter {
 
 
   transaction(arg) {
-    if (this._engineKind === 'fallback') return this._engine.transaction(arg);
+    this._assertOpen();
+    if (Array.isArray(arg)) {
+      arg = arg.map((op) => (op && typeof op.key === 'string' ? { ...op, key: normKey(op.key) } : op));
+    }
+    if (this._engineKind === 'fallback') {
+      if (typeof arg === 'function') {
+        return this._engine.transaction((tx) => arg(new Proxy(tx, {
+          get(target, prop) {
+            if (['get', 'set', 'delete', 'add', 'sub', 'push', 'pull'].includes(prop)) {
+              return (...args) => {
+                if (typeof args[0] === 'string') args[0] = normKey(args[0]);
+                return target[prop](...args);
+              };
+            }
+            return target[prop];
+          },
+        })));
+      }
+      return this._engine.transaction(arg);
+    }
 
     if (Array.isArray(arg)) {
       const ops = [];
@@ -747,6 +778,7 @@ class Database extends EventEmitter {
     if (typeof arg === 'function') {
       const staged = new Map();
       const resolveJson = (key) => {
+        key = normKey(key);
         if (staged.has(key)) {
           const s = staged.get(key);
           return s.deleted ? undefined : s.json;
@@ -759,11 +791,13 @@ class Database extends EventEmitter {
           return raw == null ? null : JSON.parse(raw);
         },
         set: (key, value) => {
+          key = normKey(key);
           const json = JSON.stringify(value);
           staged.set(key, { json });
           return value;
         },
         delete: (key) => {
+          key = normKey(key);
           const existed = resolveJson(key) != null;
           staged.set(key, { deleted: true });
           return existed;
@@ -994,7 +1028,7 @@ class Table {
   }
 
   _k(key) {
-    return `${this._name}.${key}`;
+    return normKey(`${this._name}.${key}`);
   }
 
   get(key) {

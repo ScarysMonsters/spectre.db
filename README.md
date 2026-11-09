@@ -433,7 +433,7 @@ db.set('api.token', 'abc123');
 db.set('auth.secret', 'xyz789');
 ```
 
-Sensitive keys start with `password`, `secret`, `token`, `apikey`, `api_key` or `private` (followed by `.`, `_` or end of key). Without a key, `encryptSnapshot` fails loudly instead of silently falling back to plaintext.
+Any dot-separated key segment that equals or starts with `password`, `secret`, `token`, `apikey`, `api_key` or `private` (followed by `_` or the end of the segment) is encrypted. Without a key, `encryptSnapshot` fails loudly instead of silently falling back to plaintext.
 
 ### Multi-Process Support
 

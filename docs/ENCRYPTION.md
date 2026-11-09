@@ -44,8 +44,8 @@ code 4001).
 
 ## Per-value encryption (sensitive keys)
 
-Keys **starting with** one of these words, followed by `.`, `_` or the end of
-the key, are encrypted automatically:
+Any dot-separated key segment that equals or starts with one of these words
+(followed by `_` or the end of the segment) is encrypted automatically:
 
 - `password`
 - `secret`
@@ -62,7 +62,8 @@ const db = new Database('./data/secure', {
 db.set('password', 'hunter2');        // encrypted
 db.set('token.discord', 'abc123');    // encrypted
 db.set('api_key', 'sk-...');          // encrypted
-db.set('user.password', 'hunter2');   // NOT encrypted (does not start with the word)
+db.set('user.password', 'hunter2');   // encrypted (segment match)
+db.set('user.passwordHash', '...');   // plaintext (segment does not match)
 db.set('profile.name', 'Alice');      // plaintext
 ```
 

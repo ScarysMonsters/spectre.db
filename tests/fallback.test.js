@@ -31,6 +31,18 @@ D('fallback engine (v1.1.0 API, async)', () => {
     cleanup(dir);
   });
 
+  test('normalizes keys to NFC', async () => {
+    const { dir, dbPath } = fresh('nfc');
+    const { Database } = require('../index.js');
+    const db = new Database(dbPath);
+    await db.ready;
+    await db.set('caf\u00e9', 1);
+    expect(await db.get('cafe\u0301')).toBe(1);
+    expect((await db.all()).map((e) => e.ID)).toEqual(['caf\u00e9']);
+    await db.close();
+    cleanup(dir);
+  });
+
   test('set/get/has/delete roundtrip', async () => {
     const { dir, dbPath } = fresh('crud');
     const { Database } = require('../index.js');

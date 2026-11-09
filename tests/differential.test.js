@@ -67,4 +67,37 @@ D('native/fallback differential', () => {
       fs.rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
     }
   });
+
+  test('seeded nested mutation sequence agrees', async () => {
+    const { dir, native, fallback } = fresh('fuzz');
+    const a = new Database(native);
+    const b = new FallbackDatabase(fallback);
+    await a.ready;
+    await b.ready;
+    try {
+      let seed = 123456789;
+      const rnd = () => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 2 ** 32);
+      const keys = ['a', 'b', 'user.1', 'user.2', 'obj.x', 'obj.y.deep', 'obj.y.other', 'list.0', 'list.1'];
+      for (let i = 0; i < 200; i++) {
+        const key = keys[Math.floor(rnd() * keys.length)];
+        if (rnd() < 0.75) {
+          const value = rnd() < 0.3
+            ? Math.floor(rnd() * 100)
+            : (rnd() < 0.5 ? { n: Math.floor(rnd() * 10) } : [Math.floor(rnd() * 10)]);
+          await a.set(key, value);
+          await b.set(key, value);
+        } else {
+          await a.delete(key);
+          await b.delete(key);
+        }
+        const av = (await a.all()).map((e) => [e.ID, e.data]).sort((x, y) => x[0].localeCompare(y[0]));
+        const bv = (await b.all()).map((e) => [e.ID, e.data]).sort((x, y) => x[0].localeCompare(y[0]));
+        expect(av).toEqual(bv);
+      }
+    } finally {
+      await a.close();
+      await b.close();
+      fs.rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+    }
+  });
 });
