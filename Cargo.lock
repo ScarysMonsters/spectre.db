@@ -634,7 +634,7 @@ checksum = "0c790de23124f9ab44544d7ac05d60440adc586479ce501c1d6d7da3cd8c9cf5"
 
 [[package]]
 name = "spectre-db-core"
-version = "2.1.1"
+version = "2.1.2"
 dependencies = [
  "aes-gcm",
  "base64",
@@ -651,7 +651,7 @@ dependencies = [
 
 [[package]]
 name = "spectre-db-napi"
-version = "2.1.1"
+version = "2.1.2"
 dependencies = [
  "napi",
  "napi-build",

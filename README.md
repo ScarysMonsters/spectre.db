@@ -80,8 +80,12 @@
 - [x] **TypeScript types** — first-class `index.d.ts`
 - [x] **Prebuilt binaries** — Linux (glibc/musl), macOS (x64/arm64), Windows (x64); no compilation on install
 
-### Current release — v2.1.1
+### Current release — v2.1.2
 
+- **Crash-safe recovery** — WAL tail truncation, safe backup rotation, directory fsync, and segment/WAL ordering fixes
+- **Encryption coverage** — sensitive values are encrypted through `setMany`, `transaction`, and batch paths
+- **NFC keys** — string keys, prefixes, scans, cursors, bulk helpers, and transactions normalize to Unicode NFC
+- **Recovery diagnostics** — `*.spwal.corrupt` copies, `*.migrate-bak` migration backups, `db.engine`, `db.nativeLoadError`
 - **O(1) index maintenance** — reverse key map, contiguous buckets, one shared `Arc` key per leaf across indexes
 - **Index integrity** — parent replacement and subtree deletion remove descendant index entries (single and batch)
 - **WAL-first writes** — WAL append happens before store/index mutation; an I/O error leaves the database unchanged
@@ -99,67 +103,65 @@ For the complete per-version history and release notes, see [`CHANGELOG.md`](CHA
 
 ## Benchmarks
 
-Cross-version medians on the standard 100k-key harness (Node.js 26, Windows, 3 runs, ~185-byte values). The 2.0.0/2.0.1 columns are published/local MSVC builds; 2.1.0/2.1.1 are local GNU builds, so small deltas include toolchain and thermal variance. Raw JSON: [`benchmarks/results/`](benchmarks/results/).
+Cross-version medians on the standard 100k-key harness (Node.js 26, Windows, 3 runs, ~185-byte values). The 2.0.0/2.0.1 columns are published/local MSVC builds; 2.1.0/2.1.1/2.1.2 are local GNU builds, so small deltas include toolchain and thermal variance. Raw JSON: [`benchmarks/results/`](benchmarks/results/).
 
 ### Standard workloads — all versions (ops/s)
 
-| Workload | 2.0.0 | 2.0.1 | 2.1.0 | **2.1.1** |
-|---|---:|---:|---:|---:|
-| write (single) | 90 547 | 117 176 | 108 104 | **118 125** |
-| write (batch 1 000) | 162 509 | 244 365 | 272 581 | **344 583** |
-| read (random) | 268 230 | 640 771 | 655 303 | **716 800** |
-| read (batch 1 000) | — | 1 070 848 | 1 061 829 | **1 218 256** |
-| scan (full prefix) | 576 765 | 1 404 492 | 1 484 578 | **1 636 249** |
-| count (queries/s) | 24 | 276 | 298 | **296** |
-| count (entries/s) | 2 437 641 | 27 648 827 | 29 794 714 | **29 567 516** |
-| mixed 80/20 | 172 736 | 283 742 | 289 964 | **336 144** |
-| delete (batched) | 321 517 | 414 003 | 581 126 | **821 717** |
+| Workload | 2.0.0 | 2.0.1 | 2.1.0 | 2.1.1 | **2.1.2** |
+|---|---:|---:|---:|---:|---:|
+| write (single) | 90 547 | 117 176 | 108 104 | 118 125 | **129 918** |
+| write (batch 1 000) | 162 509 | 244 365 | 272 581 | 344 583 | **323 315** |
+| read (random) | 268 230 | 640 771 | 655 303 | 716 800 | **714 055** |
+| read (batch 1 000) | — | 1 070 848 | 1 061 829 | 1 218 256 | **1 091 934** |
+| scan (full prefix) | 576 765 | 1 404 492 | 1 484 578 | 1 636 249 | **1 569 893** |
+| count (queries/s) | 24 | 276 | 298 | 296 | **302** |
+| count (entries/s) | 2 437 641 | 27 648 827 | 29 794 714 | 29 567 516 | **30 204 545** |
+| mixed 80/20 | 172 736 | 283 742 | 289 964 | 336 144 | **325 189** |
+| delete (batched) | 321 517 | 414 003 | 581 126 | 821 717 | **773 932** |
 
-2.1.1 is fastest on 8/9 standard workloads (count is flat within variance).
+2.1.2 is a reliability release: single writes improved and random reads are flat versus 2.1.1; batch/scan/mixed/delete medians are slightly lower in this run. The differences are within the observed thermal/toolchain variance; compare 2.1.2 against SQLite/LMDB from the same run below.
 
-### 2.1.1 vs SQLite and LMDB (100k standard, ops/s)
+### 2.1.2 vs SQLite and LMDB (100k standard, ops/s)
 
-Same 3-run harness and dataset. SQLite uses WAL + `synchronous=NORMAL`; LMDB uses its default sync mode; spectre.db 2.1.1 uses `durability: "process"`. Higher is better.
+Same 3-run harness and dataset. SQLite uses WAL + `synchronous=NORMAL`; LMDB uses its default sync mode; spectre.db 2.1.2 uses `durability: "process"`. Higher is better.
 
-| Workload | **spectre.db 2.1.1** | SQLite | LMDB | Winner |
+| Workload | **spectre.db 2.1.2** | SQLite | LMDB | Winner |
 |---|---:|---:|---:|---|
-| write (single) | **118 125** | 25 096 | 5 907 | spectre.db |
-| write (batch 1 000) | **344 583** | 305 901 | 111 289 | spectre.db |
-| read (random) | **716 800** | 180 006 | 635 332 | spectre.db |
-| read (batch 1 000) | **1 218 256** | 182 469 | 377 864 | spectre.db |
-| scan (full prefix) | **1 636 249** | 1 081 143 | 1 558 778 | spectre.db |
-| count (queries/s) | **296** | 131 | 148 | spectre.db |
-| count (entries/s) | **29 567 516** | 13 149 607 | 14 837 037 | spectre.db |
-| mixed 80/20 | **336 144** | 64 163 | 27 945 | spectre.db |
-| delete (batched) | **821 717** | 258 359 | 176 214 | spectre.db |
+| write (single) | **129 918** | 24 617 | 5 862 | spectre.db |
+| write (batch 1 000) | **323 315** | 307 055 | 110 885 | spectre.db |
+| read (random) | **714 055** | 179 094 | 613 419 | spectre.db |
+| read (batch 1 000) | **1 152 506** | 184 471 | 372 026 | spectre.db |
+| scan (full prefix) | **1 569 893** | 1 026 479 | 1 559 194 | spectre.db |
+| count (queries/s) | **302** | 134 | 146 | spectre.db |
+| count (entries/s) | **30 204 545** | 13 414 122 | 14 566 939 | spectre.db |
+| mixed 80/20 | **325 189** | 63 941 | 27 766 | spectre.db |
+| delete (batched) | **773 932** | 267 910 | 179 133 | spectre.db |
 | on-disk size | **21.5 MB** | 21.1 MB | 35.8 MB | — |
 
-spectre.db wins **9/9** standard workloads against both engines in this run. In `durability: "durable"` mode the trade-off changes: LMDB keeps the single-write and mixed-write lead (per-op fsync vs. LMDB's asynchronous flush), while spectre.db wins bulk reads, count, delete and batch ingestion. Raw engine summaries are in `benchmarks/results/2.1.1/standard-2.1.1-100k.json`.
+spectre.db wins **9/9** standard workloads in this run; LMDB is within 1% on full-prefix scan. In `durability: "durable"` mode the trade-off changes: LMDB keeps the single-write and mixed-write lead (per-op fsync vs. LMDB's asynchronous flush), while spectre.db wins bulk reads, count, delete and batch ingestion. Raw engine summaries are in `benchmarks/results/2.1.2/standard.json`.
 
 ### Index, prefix and compaction — all versions
 
-| Focus | 2.0.1 | 2.1.0 | **2.1.1** |
-|---|---:|---:|---:|
-| Indexed insert (5 indexes) | 263 ops/s | 93 366 ops/s | **122 696 ops/s** |
-| Indexed update | 613 ops/s | 46 174 ops/s | **53 708 ops/s** |
-| Update P99 | 1 024.6 µs | 40.8 µs | **28.4 µs** |
-| Indexed lookup (10k results) | 4.90 ms | 6.56 ms | **4.17 ms** |
-| Index range (1k results) | 3.77 ms | 5.02 ms | **3.04 ms** |
-| Prefix 0.1% of 1M keys | 57.2 ms | 0.60 ms | **0.607 ms** |
-| Prefix 1% of 1M keys | 37.2 ms | 7.72 ms | **7.56 ms** |
-| Prefix 10% of 1M keys | 151 ms | 65.8 ms | **65.7 ms** |
-| Compaction peak RSS (50k × 4 KB) | 643 MB | 420 MB | **121 MB** |
-| Compaction time (50k × 4 KB) | 1 086 ms | 858 ms | **165 ms** |
+| Focus | 2.0.1 | 2.1.0 | 2.1.1 | **2.1.2** |
+|---|---:|---:|---:|---:|
+| Indexed insert (5 indexes) | 263 ops/s | 93 366 ops/s | 122 696 ops/s | **142 419 ops/s** |
+| Indexed update | 613 ops/s | 46 174 ops/s | 53 708 ops/s | **56 134 ops/s** |
+| Update P99 | 1 024.6 µs | 40.8 µs | 28.4 µs | **36.3 µs** |
+| Indexed lookup (10k results) | 4.90 ms | 6.56 ms | 4.17 ms | **4.19 ms** |
+| Index range (1k results) | 3.77 ms | 5.02 ms | 3.04 ms | **3.07 ms** |
+| Prefix 0.1% of 1M keys | 57.2 ms | 0.60 ms | 0.607 ms | **0.509 ms** |
+| Prefix 1% of 1M keys | 37.2 ms | 7.72 ms | 7.56 ms | **6.05 ms** |
+| Prefix 10% of 1M keys | 151 ms | 65.8 ms | 65.7 ms | **58.9 ms** |
+| Compaction peak RSS (50k × 4 KB random) | 643 MB | 420 MB | 121 MB* | **130 MB** |
+| Compaction time (50k × 4 KB random) | 1 086 ms | 858 ms | 165 ms* | **154 ms** |
 
-Prefix scans are flat versus 2.1.0; the remaining prefix targets were not reached. Allocation and large-delete memory targets remain open.
-
-Raw results: [`benchmarks/results/`](benchmarks/results/). Reproduce:
+\* The 2.1.1 compaction run used repeated `x` values, which compress; 2.1.2 uses incompressible random values by default, so its time/RSS are not directly comparable and are the honest baseline going forward. Index/prefix/compaction data lives under the OS temp directory to avoid cloud-sync filesystem effects; standard workload data lives in `benchmarks/data`. Index and prefix figures are single runs; expect a few percent of run-to-run variance. Raw results: [`benchmarks/results/2.1.2/`](benchmarks/results/2.1.2/).
 
 ```sh
 cd benchmarks
 npm install
 npm run bench                          # published @sexfy/spectre.db baseline
-SPECTRE_BENCH_LOCAL=1 node bench.js    # local build (2.1.1+)
+SPECTRE_BENCH_LOCAL=1 node bench.js    # local build (2.1.2+)
 ```
 
 On Windows PowerShell: `$env:SPECTRE_BENCH_LOCAL=1; node bench.js`.

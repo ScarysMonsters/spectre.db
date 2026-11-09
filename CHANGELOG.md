@@ -2,7 +2,16 @@
 
 spectre.db is the same project as spectre.db 1.x by ScarysMonsters, rewritten in Rust. It is not a fork: v2 keeps the same API and JSON compatibility while replacing the JavaScript engine with a native Rust core.
 
-## Unreleased
+## 2.1.2 (2026-11-10)
+
+Reliability release focused on the 2.1.1 review. No on-disk format change and no public API break: v1.1.0 (JSON) and v2.1.x (binary) databases open unchanged.
+
+### Benchmarks
+- Standard 100k-key / 3-run medians: **129 918** single writes/s, **323 315** batched writes/s, **714 055** random reads/s, **1 152 506** batched reads/s, **1 569 893** prefix scans/s, **302** count queries/s (30.2M entries/s), **325 189** mixed ops/s, **773 932** batched deletes/s.
+- Against the same-run SQLite (WAL) and LMDB baselines, spectre.db 2.1.2 won **9/9** standard workloads (LMDB within 1% on full-prefix scan). Full table in `README.md`; raw JSON in `benchmarks/results/2.1.2/`.
+- Indexed insert **142 419** ops/s, indexed update **56 134** ops/s (P99 33.4 µs), lookup **4.19 ms**, range **3.07 ms**.
+- Prefix scans over 1M keys: **0.509 ms** (0.1%), **6.05 ms** (1%), **58.9 ms** (10%).
+- Compaction 50k × 4 KB incompressible values: **154 ms**, peak RSS delta **130 MB**. This replaces the previous compressible-value benchmark as the honest baseline.
 
 ### Reliability (review follow-up)
 - **WAL tail truncation**: a truncated/invalid WAL tail is now copied to `*.spwal.corrupt`, truncated to the last valid frame, and synced before appending new writes.

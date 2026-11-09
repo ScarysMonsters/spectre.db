@@ -21,7 +21,7 @@ the same version.
 ## Version bump
 
 ```sh
-node scripts/bump-version.js 2.1.1
+node scripts/bump-version.js 2.1.2
 ```
 
 The script updates:
@@ -40,11 +40,11 @@ npm run check-versions   # also runs automatically before publishing (prepublish
 ## Release flow
 
 ```sh
-node scripts/bump-version.js 2.1.1
+node scripts/bump-version.js 2.1.2
 git add -A
-git commit -m "release 2.1.1"
-git tag v2.1.1
-git push origin main v2.1.1
+git commit -m "release 2.1.2"
+git tag v2.1.2
+git push origin main v2.1.2
 ```
 
 Pushing the `v*` tag triggers the **Release** workflow:

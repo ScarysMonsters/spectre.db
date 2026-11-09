@@ -60,7 +60,11 @@ function normalizePath(filePath) {
 }
 
 function normKey(key) {
-  return typeof key === 'string' ? key.normalize('NFC') : key;
+  if (typeof key !== 'string') return key;
+  for (let i = 0; i < key.length; i++) {
+    if (key.charCodeAt(i) >= 0x80) return key.normalize('NFC');
+  }
+  return key;
 }
 
 function mapLegacyOptions(opts = {}) {
@@ -1084,4 +1088,4 @@ class Table {
   }
 }
 
-module.exports = { Database, Table, hasNativeEngine: nativeBinding != null, version: '2.1.1' };
+module.exports = { Database, Table, hasNativeEngine: nativeBinding != null, version: '2.1.2' };

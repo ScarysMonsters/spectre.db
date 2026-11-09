@@ -1,6 +1,6 @@
 {
   "name": "spectre-db-linux-x64-gnu",
-  "version": "2.1.1",
+  "version": "2.1.2",
   "description": "spectre-db native binary for linux-x64-gnu (napi-rs prebuild)",
   "main": "index.js",
   "os": [
