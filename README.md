@@ -80,102 +80,59 @@
 - [x] **TypeScript types** — first-class `index.d.ts`
 - [x] **Prebuilt binaries** — Linux (glibc/musl), macOS (x64/arm64), Windows (x64); no compilation on install
 
-### New in v2.1.1
+### Current release — v2.1.1
 
-- [x] **Index integrity** — parent replacement and subtree deletion remove descendant index entries
-- [x] **WAL-first writes** — WAL append happens before store/index mutation; an I/O error no longer leaves a silently mutated database
-- [x] **Parent-count fast path** — leaf writes/deletes skip descendant B-tree scans
-- [x] **Direct WAL encoding** — set/delete frames written without an intermediate `Op`, fewer key/value copies
-- [x] **`count(prefix)`** — prefix-bounded counting instead of a full-map fallback
-- [x] **Shared index keys** — one `Arc` key allocation per leaf update across all secondary indexes
-- [x] **`deleteMany()` parity** — same native/fallback results; batch delete no longer creates 1,000 JS objects per chunk
+- **O(1) index maintenance** — reverse key map, contiguous buckets, one shared `Arc` key per leaf across indexes
+- **Index integrity** — parent replacement and subtree deletion remove descendant index entries (single and batch)
+- **WAL-first writes** — WAL append happens before store/index mutation; an I/O error leaves the database unchanged
+- **Parent-count fast path** — leaf sets/deletes skip descendant B-tree scans
+- **Direct WAL frames** — set/delete encoded without an intermediate `Op`
+- **Prefix-bounded scans** — `page`, `scan`, `all` stop at the prefix boundary
+- **Bulk APIs** — `getMany()`, `setMany()`, `deleteMany()`, `scanSync()`
+- **Lower memory** — shared `Arc` store keys, shared indexed values, `Arc`-shared compaction snapshots
+- **`count(prefix)`** — prefix-bounded counting
+- **Crate layout** — `crates/core` and `crates/napi` (package names unchanged)
 
-### New in v2.1.0
-
-- [x] **O(1) index maintenance** — reverse key map + contiguous buckets
-- [x] **Shared JSON parsing** — one parse per document for all indexes
-- [x] **Prefix-bounded scans** — `page`, `scan`, `all` stop at the prefix boundary
-- [x] **Lower memory** — shared `Arc` keys, shared indexed values, `Arc`-shared compaction snapshots
-- [x] **Bulk APIs** — `getMany()`, `setMany()`, `scanSync()`
-- [x] **Crate layout** — `crates/core` and `crates/napi` (package names unchanged)
+For the complete per-version history and release notes, see [`CHANGELOG.md`](CHANGELOG.md).
 
 ---
 
 ## Benchmarks
 
-### 2.1.0 → 2.1.1 engine improvements
+Cross-version medians on the standard 100k-key harness (Node.js 26, Windows, 3 runs, ~185-byte values). The 2.0.0/2.0.1 columns are published/local MSVC builds; 2.1.0/2.1.1 are local GNU builds, so small deltas include toolchain and thermal variance. Raw JSON: [`benchmarks/results/`](benchmarks/results/).
 
-Raw JSON: [`benchmarks/results/2.1.1/`](benchmarks/results/2.1.1/). The 2.1.0 column is the previous local GNU build, 2.1.1 is the current local GNU build; ratios are the meaningful figure.
+### Standard workloads — all versions (ops/s)
 
-| Focus | 2.1.0 | 2.1.1 | Delta |
+| Workload | 2.0.0 | 2.0.1 | 2.1.0 | **2.1.1** |
+|---|---:|---:|---:|---:|
+| write (single) | 90 547 | 117 176 | 108 104 | **118 125** |
+| write (batch 1 000) | 162 509 | 244 365 | 272 581 | **344 583** |
+| read (random) | 268 230 | 640 771 | 655 303 | **716 800** |
+| read (batch 1 000) | — | 1 070 848 | 1 061 829 | **1 218 256** |
+| scan (full prefix) | 576 765 | 1 404 492 | 1 484 578 | **1 636 249** |
+| count (queries/s) | 24 | 276 | 298 | **296** |
+| count (entries/s) | 2 437 641 | 27 648 827 | 29 794 714 | **29 567 516** |
+| mixed 80/20 | 172 736 | 283 742 | 289 964 | **336 144** |
+| delete (batched) | 321 517 | 414 003 | 581 126 | **821 717** |
+
+2.1.1 is fastest on 8/9 standard workloads (count is flat within variance). On the latest run it also beats LMDB and SQLite on all 9 workloads; full engine comparison tables remain in `benchmarks/results/2.1.1/`.
+
+### Index, prefix and compaction — all versions
+
+| Focus | 2.0.1 | 2.1.0 | **2.1.1** |
 |---|---:|---:|---:|
-| Indexed insert, 100k docs, 5 indexes | 93 366 ops/s | **122 696 ops/s** | **+31.4%** |
-| Indexed update, 100k docs, 5 indexes | 46 174 ops/s | **53 708 ops/s** | **+16.3%** |
-| Update P50 / P95 / P99 (100k) | 19.6 / 25.5 / 40.8 µs | **16.9 / 21.2 / 28.4 µs** | P99 **-30.4%** |
-| Indexed lookup (10k results) | 6.56 ms | **4.17 ms** | **-36.4%** |
-| Index range (1k results) | 5.02 ms | **3.04 ms** | **-39.4%** |
-| Indexed insert overhead vs no index | ×1.85 | **×1.35** | under the 1.5× target |
-| Compaction peak RSS (50k × 4 KB) | 420 MB | **121 MB** | **-71.2%** |
-| Compaction time (50k × 4 KB) | 858 ms | **165 ms** | **-80.8%** |
-| Prefix scan 0.1% / 1% / 10% (1M keys) | 0.60 / 7.72 / 65.8 ms | 0.61 / 7.56 / 65.7 ms | flat (targets not reached) |
+| Indexed insert (5 indexes) | 263 ops/s | 93 366 ops/s | **122 696 ops/s** |
+| Indexed update | 613 ops/s | 46 174 ops/s | **53 708 ops/s** |
+| Update P99 | 1 024.6 µs | 40.8 µs | **28.4 µs** |
+| Indexed lookup (10k results) | 4.90 ms | 6.56 ms | **4.17 ms** |
+| Index range (1k results) | 3.77 ms | 5.02 ms | **3.04 ms** |
+| Prefix 0.1% of 1M keys | 57.2 ms | 0.60 ms | **0.607 ms** |
+| Prefix 1% of 1M keys | 37.2 ms | 7.72 ms | **7.56 ms** |
+| Prefix 10% of 1M keys | 151 ms | 65.8 ms | **65.7 ms** |
+| Compaction peak RSS (50k × 4 KB) | 643 MB | 420 MB | **121 MB** |
+| Compaction time (50k × 4 KB) | 1 086 ms | 858 ms | **165 ms** |
 
-### 2.1.1 targets check
-
-| Metric | Target | Achieved | Status |
-|---|---:|---:|:--|
-| Single write | 130k/s | 118 125/s | close |
-| Batch write | 350k/s | 344 583/s | close |
-| Random read | 680k/s | 716 800/s | met |
-| Batch read | 1.30M/s | 1 218 256/s | close |
-| Full scan | 1.55M/s | 1 636 249/s | met |
-| Mixed workload | 350k/s | 336 144/s | close |
-| DeleteMany | 800k/s | 821 717/s | met |
-| Indexed insert | 130k/s | 122 696/s | close |
-| Indexed update | 65k/s | 53 708/s | not met |
-| Update P50 | 15 µs | 16.9 µs | close |
-| Update P99 | 25 µs | 28.4 µs | close |
-| Lookup 10k | 4 ms | 4.17 ms | close |
-| Range 1k | 3 ms | 3.04 ms | close |
-| 5-index overhead | <1.5× | 1.35× | met |
-| Compaction peak RSS | 300 MB | 121 MB | met |
-| Compaction time | 650 ms | 165 ms | met |
-
-Allocation and large-delete memory targets were not instrumented in this cycle and remain open.
-
-### Standard workloads — 2.1.1
-
-Median of 3 runs on Windows, Node.js 26.4.0, 8 logical cores, 100,000 keys, ~185-byte JSON values. SQLite uses WAL + `synchronous=NORMAL`; LMDB uses its default sync mode; spectre.db runs the local 2.1.1 build with `autoSave: 0`. Higher is better (ops/s).
-
-| Workload | spectre.db | SQLite | LMDB | Winner |
-|---|---:|---:|---:|---|
-| write (single op) | **118 125** | 25 096 | 5 907 | spectre.db |
-| write (batch of 1,000) | **344 583** | 305 901 | 111 289 | spectre.db |
-| read (random) | **716 800** | 180 006 | 635 332 | spectre.db |
-| read (batch of 1,000) | **1 218 256** | 182 469 | 377 864 | spectre.db |
-| scan (full prefix) | **1 636 249** | 1 081 143 | 1 558 778 | spectre.db |
-| count (queries/s, 100k keys) | **296** | 131 | 148 | spectre.db |
-| count (entries/s) | **29 567 516** | 13 149 607 | 14 837 037 | spectre.db |
-| mixed 80/20 | **336 144** | 64 163 | 27 945 | spectre.db |
-| delete (batched) | **821 717** | 258 359 | 176 214 | spectre.db |
-| on-disk size | 21.5 MB | 21.1 MB | 35.8 MB | — |
-
-spectre.db wins 9/9 workloads against LMDB in this run. Count is flat versus 2.1.0 (-0.7%) and within run-to-run variance.
-
-### 2.1.0 → 2.1.1 standard workloads
-
-| Workload | 2.1.0 | 2.1.1 | Delta |
-|---|---:|---:|---:|
-| write (single op) | 108 104 | 118 125 | **+9.3%** |
-| write (batch of 1,000) | 272 581 | 344 583 | **+26.4%** |
-| read (random) | 655 303 | 716 800 | **+9.4%** |
-| read (batch of 1,000) | 1 061 829 | 1 218 256 | **+14.7%** |
-| scan (full prefix) | 1 484 578 | 1 636 249 | **+10.2%** |
-| count (queries/s) | 298 | 296 | -0.7%* |
-| count (entries/s) | 29 794 714 | 29 567 516 | -0.8%* |
-| mixed 80/20 | 289 964 | 336 144 | **+15.9%** |
-| delete (batched) | 581 126 | 821 717 | **+41.4%** |
-
-\* Count is statistically flat within thermal variance. The large structural gains are index maintenance, WAL-first writes, bulk delete and compaction.
+Prefix scans are flat versus 2.1.0; the remaining prefix targets were not reached. Allocation and large-delete memory targets remain open.
 
 Raw results: [`benchmarks/results/`](benchmarks/results/). Reproduce:
 
