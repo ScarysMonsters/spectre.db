@@ -92,7 +92,7 @@ describe('basic CRUD (both engines)', () => {
     for (const row of db.scanSync({ prefix: 'user.' })) ids.push(row.ID);
     expect(ids.sort()).toEqual(['user.1', 'user.2']);
 
-    expect(db.deleteMany(['user.1', 'missing'])).toEqual([true, false]);
+    expect(await db.deleteMany(['user.1', 'missing'])).toEqual([true, false]);
     expect(db.get('user.1')).toBeNull();
     expect(db.get('user.2')).toEqual({ name: 'b' });
 
@@ -292,26 +292,34 @@ describe('transactions (both engines)', () => {
 describe('persistence', () => {
   T('survives crash without compaction (WAL replay)', async () => {
     const { dir, dbPath } = fresh('crash');
-    let crashed;
-    {
-      const db = new Database(dbPath);
-      crashed = db;
-      await db.ready;
-      await db.set('a', 1);
-      await db.set('b', { deep: true });
-      await db.delete('a');
-      await db.compact();
-      await db.set('c', 3);
-
-      fs.writeFileSync(path.join(dir, 'test.lock'), '999999999\n');
-    }
+    // Crash a real process: the OS lock must be released by the kernel and
+    // the WAL replayed. (Overwriting the lock file of a database that is still
+    // open in this process is now correctly refused.)
+    const script = [
+      "const { Database } = require(process.argv[1]);",
+      "const db = new Database(process.argv[2]);",
+      "db.set('a', 1);",
+      "db.set('b', { deep: true });",
+      "db.delete('a');",
+      "db.compact().then(() => { db.set('c', 3); process.exit(0); });",
+    ].join('\n');
+    require('child_process').execFileSync(process.execPath, ['-e', script, path.join(__dirname, '..'), dbPath]);
     const db2 = new Database(dbPath);
     await db2.ready;
     expect(db2.get('a')).toBeNull();
     expect(db2.get('b')).toEqual({ deep: true });
     expect(db2.get('c')).toBe(3);
     await db2.close();
-    try { await crashed.close(); } catch (_) {}
+    cleanup(dir);
+  });
+
+  T('a database open in this process cannot be opened twice', async () => {
+    const { dir, dbPath } = fresh('double-open');
+    const db = new Database(dbPath);
+    await db.ready;
+    fs.writeFileSync(path.join(dir, 'test.lock'), '999999999\n');
+    expect(() => new Database(dbPath, { lockTimeout: 200 })).toThrow(/Lock acquisition timeout/);
+    await db.close();
     cleanup(dir);
   });
 
@@ -563,6 +571,75 @@ describe('stats & warmKeys', () => {
     await db.close();
     await db.close();
     expect(() => db.set('x', 1)).toThrow();
+    cleanup(dir);
+  });
+});
+
+
+D('2.1.3 audit regressions (native)', () => {
+  test('array transactions reject undefined values instead of storing null', async () => {
+    const { dir, dbPath } = fresh('tx-undef');
+    const db = new Database(dbPath);
+    await db.ready;
+    expect(() => db.transaction([{ type: 'set', key: 'a', value: undefined }])).toThrow(TypeError);
+    expect(db.get('a')).toBeNull();
+    expect(() => db.setMany([['b', undefined]])).toThrow(TypeError);
+    await db.close();
+    cleanup(dir);
+  });
+
+  test('function transactions commit the last write order', async () => {
+    const { dir, dbPath } = fresh('tx-order');
+    const db = new Database(dbPath);
+    await db.ready;
+    db.set('a', { b: 1, c: 2 });
+    await db.transaction((tx) => {
+      tx.set('a.b', 5);
+      tx.delete('a');
+      tx.set('a.b', 7);
+    });
+    expect(db.get('a.b')).toBe(7);
+    expect(db.get('a.c')).toBeNull();
+    await db.close();
+    cleanup(dir);
+  });
+
+  test('setMany emits change events when someone listens', async () => {
+    const { dir, dbPath } = fresh('setmany-events');
+    const db = new Database(dbPath);
+    await db.ready;
+    const seen = [];
+    db.on('change', (e) => seen.push(e.key));
+    db.setMany([['x', 1], ['y', 2]]);
+    expect(seen).toEqual(['x', 'y']);
+    await db.close();
+    cleanup(dir);
+  });
+
+  test('raw values survive segmented compaction and reopen', async () => {
+    const { dir, dbPath } = fresh('raw-seg');
+    let db = new Database(dbPath, { compactMode: 'segments', autoSave: 0 });
+    await db.ready;
+    for (let i = 0; i < 20; i++) db.set(`k${i}`, i);
+    await db.compact();
+    db.setRaw('blob', Buffer.from([1, 2, 3]));
+    await db.compactAsync();
+    await db.close();
+    db = new Database(dbPath, { compactMode: 'segments', autoSave: 0 });
+    await db.ready;
+    expect([...db.getRaw('blob')]).toEqual([1, 2, 3]);
+    await db.close();
+    cleanup(dir);
+  });
+
+  test('stats report the configured backup count and package version', async () => {
+    const { dir, dbPath } = fresh('stats-version');
+    const db = new Database(dbPath, { backupCount: 5 });
+    await db.ready;
+    const st = db._engine.stats();
+    expect(st.backupCount).toBe(5);
+    expect(st.engine).toContain(require('../package.json').version);
+    await db.close();
     cleanup(dir);
   });
 });

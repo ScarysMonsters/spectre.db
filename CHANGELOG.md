@@ -2,6 +2,38 @@
 
 spectre.db is the same project as spectre.db 1.x by ScarysMonsters, rewritten in Rust. It is not a fork: v2 keeps the same API and JSON compatibility while replacing the JavaScript engine with a native Rust core.
 
+## Unreleased
+
+Durability audit of 2.1.2. No on-disk format change: existing v1.1.0 and v2.1.x databases open unchanged. Every fix below has a reopen-from-disk regression test (`crates/core/src/regressions.rs`, `tests/engine.test.js`).
+
+### Data-loss fixes
+- **Raw values and segments**: `setRaw`/`deleteRaw` tracked the bare key name as dirty, so a delta segment wrote a tombstone for the JSON key instead of the binary value, and the value was gone after the WAL reset. Raw tombstones in segments also deleted the wrong (double-prefixed) key.
+- **Nested raw keys**: snapshot loading and WAL replay applied JSON-path semantics to raw keys, so `setRaw('a')` + `setRaw('a.b')` lost `a` on reopen and `deleteRaw('c')` also deleted `c.d`. Snapshots are now rebuilt verbatim and raw WAL ops are exact.
+- **Async full merge**: a `compactAsync()` full segment was merged on top of the old snapshot without tombstones, bringing deleted keys back. Full segments now replace the state below them.
+- **`close()` during `compactAsync()`**: keys handed to the in-flight job were no longer dirty, so the closing compaction skipped them and truncated the WAL. In-flight keys now stay pending until the job commits, goes stale or fails.
+- **Sync `compact()` during `compactAsync()`**: both could pick the same segment id and overwrite each other's file. Async jobs reserve their id, and a sync delta compaction bumps the generation so the older job comes back `stale`.
+- **Async delta of object fields**: a field written into an object leaf (`set('a.b')` with `a` an object) was tombstoned by `compactAsync()`, deleting it from `a` on reopen.
+- **`compactMode: 'auto'` back under `legacyThreshold`**: the legacy rewrite left the old segments in the manifest, and they were replayed over the fresh snapshot (stale values, resurrected keys). It now goes through a full checkpoint that retires them.
+- **Failed manifest write** during a delta compaction no longer forgets the dirty keys.
+
+### Correctness
+- `get('user.password')` on a sensitive field stored inside an object returned the encryption envelope instead of the decrypted value.
+- `setRaw` on a JSON-format database now fails with a clear error (the JSON snapshot cannot hold binary and every later compaction failed).
+- Snapshot encoding no longer falls back to writing an unencrypted/uncompressed payload under encrypted/compressed header flags (an unreadable file); the error is reported instead.
+- Manifest decoding is bounds-checked and rejects segment names containing path separators or `..`.
+- Native `batch` rejects unknown operation types (they were stored as the string `"unsupported:<type>"`) and missing values; array transactions and `setMany` reject `undefined` like `set` does instead of storing `null`.
+- Function transactions commit operations in the order of the last write to each key (`set a.b`, `delete a`, `set a.b` kept `a` deleted).
+- Index lookups treat `-0` and `0` as the same value; `scryptLogN` above 255 is rejected instead of wrapping around.
+- `stats().backupCount` and `stats().engine` report the configured value and the real package version.
+
+### Locking
+- The native engine now takes an OS lock (`flock` on Unix, `LockFileEx` on Windows) on the `.lock` file in addition to writing its PID. The kernel releases it when a process dies, so two processes recovering the same stale lock can no longer both win, and a crashed owner whose PID was reused by another program no longer blocks the database until `lockTimeout`. The PID is still written and honoured, so the JS fallback engine and older versions keep excluding each other with 2.1.3.
+
+### Improvements
+- Background compaction (`compactInterval`) uses `compactAsync()`, so segment encoding no longer blocks the event loop, and two timer ticks never overlap.
+- `setMany` emits `change` events when there are listeners; raw-value keys are NFC-normalised like JSON keys.
+- JS fallback: `scan`/`cursor` return one row per record like the native engine instead of one row per leaf field.
+
 ## 2.1.2 (2026-11-10)
 
 Reliability release focused on the 2.1.1 review. No on-disk format change and no public API break: v1.1.0 (JSON) and v2.1.x (binary) databases open unchanged.

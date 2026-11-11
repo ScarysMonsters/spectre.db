@@ -135,6 +135,13 @@ pub struct Engine {
 
     dirty_all: bool,
 
+    // Keys handed to an async compaction job that has not committed yet.
+    // They stay "pending" for any sync compaction / close until the job
+    // commits, so a close() in the middle of compactAsync() cannot drop them.
+    // Counted because two jobs may carry the same key.
+    inflight: BTreeMap<Vec<u8>, u32>,
+    inflight_all: u32,
+
     manifest: Manifest,
     next_seg_id: u64,
 
@@ -228,6 +235,8 @@ impl Engine {
             init_events: Vec::new(),
             dirty: BTreeSet::new(),
             dirty_all: false,
+            inflight: BTreeMap::new(),
+            inflight_all: 0,
             manifest: Manifest::default(),
             next_seg_id: 1,
             wal_gen: 0,
@@ -309,10 +318,18 @@ impl Engine {
                     continue;
                 }
                 if let Ok(part) = formats::load_snapshot(&sb, self.enc_key.as_ref()) {
+                    if seg.name.contains(".spseg-full-") {
+                        // A full segment is a complete image of the store: it
+                        // replaces everything below it (snapshot + older
+                        // segments) instead of being merged on top, otherwise
+                        // keys deleted since the snapshot would come back.
+                        self.store = part;
+                        continue;
+                    }
                     for (k, v) in part.iter() {
                         if crate::store::is_raw_key(k) {
                             if v == b"\x00DEL" {
-                                self.store.delete_raw(k);
+                                self.store.remove_exact(k);
                             } else {
                                 self.store.raw_insert(k, v.to_vec().into_boxed_slice());
                             }
@@ -564,6 +581,13 @@ impl Engine {
         match self.store.get(key.as_bytes()) {
             Some(bytes) => {
                 self.cache_hits += 1;
+                // Descending into an object leaf can land on a sensitive
+                // field stored as an encryption envelope.
+                if let Some(k) = &self.enc_key {
+                    if crypto::looks_encrypted(&bytes) {
+                        return Ok(Some(Cow::Owned(crypto::decrypt_value(&bytes, k)?)));
+                    }
+                }
                 Ok(Some(Cow::Owned(bytes)))
             }
             None => {
@@ -1065,12 +1089,18 @@ impl Engine {
             };
 
         if !use_segments {
-            return self.compact_legacy(true);
+            // checkpoint_full also retires any segments left over from a
+            // period where the store was above `legacy_threshold`; a plain
+            // legacy rewrite would leave them in the manifest and they would
+            // be replayed over the fresh snapshot on the next open.
+            self.checkpoint_full()?;
+            self.last_compaction_ms = Some(unix_ms());
+            return Ok(());
         }
 
-
-        let full_merge = self.dirty_all
-            || self.manifest.segments.is_empty() && self.dirty.len() >= self.store.count(None)
+        let dirty_keys = self.pending_dirty_keys();
+        let full_merge = self.pending_dirty_all()
+            || self.manifest.segments.is_empty() && dirty_keys.len() >= self.store.count(None)
             || self.manifest.segments.len() >= self.opts.segment_merge_every as usize;
 
         if full_merge {
@@ -1079,20 +1109,9 @@ impl Engine {
             return Ok(());
         }
 
-
-        let mut scratch = Store::new();
-        let dirty_keys: Vec<Vec<u8>> = self.dirty.iter().cloned().collect();
-        for k in &dirty_keys {
-            if let Some(v) = self.store.get(k) {
-                scratch.raw_insert(k, v.into_boxed_slice());
-            } else {
-
-
-                scratch.raw_insert(k, b"\x00DEL".to_vec().into_boxed_slice());
-            }
-        }
+        let scratch = self.delta_scratch(&dirty_keys);
         let seg_id = self.next_seg_id;
-        let bytes = formats::write_snapshot_ex(&scratch, self.opts.compression, self.snap_key());
+        let bytes = formats::try_write_snapshot_ex(&scratch, self.opts.compression, self.snap_key())?;
         let name = format!("{}.spseg-{}", self.paths.base, seg_id);
         let path = self.paths.dir.join(&name);
         let tmp = unique_tmp(&path);
@@ -1104,17 +1123,28 @@ impl Engine {
             }
         }
 
+        let old_generation = self.manifest.generation;
         self.manifest.segments.push(ManifestEntry {
             id: seg_id,
-            gen: self.manifest.generation + 1,
+            gen: old_generation + 1,
             entries: scratch.len() as u64,
             file_crc: crc32fast::hash(&bytes),
             name: name.clone(),
         });
+        // Bumping the generation makes any async job prepared before this
+        // point come back as "stale" instead of committing over us.
+        self.manifest.generation = old_generation + 1;
         self.next_seg_id += 1;
+        if let Err(error) = self.write_manifest() {
+            // Keep the keys dirty: the WAL still holds them, and the next
+            // compaction must persist them before the WAL is truncated.
+            self.manifest.segments.pop();
+            self.manifest.generation = old_generation;
+            let _ = std::fs::remove_file(&path);
+            return Err(error);
+        }
         self.dirty.clear();
         self.dirty_all = false;
-        self.write_manifest()?;
         self.crash_point("man_after_rename");
         self.reset_wal()?;
 
@@ -1188,7 +1218,7 @@ impl Engine {
     // content ships inside the new snapshot by construction).
     fn compact_legacy(&mut self, reset_wal: bool) -> Result<()> {
         let bytes = match self.mode {
-            FormatMode::V2 => formats::write_snapshot_ex(&self.store, self.opts.compression, self.snap_key()),
+            FormatMode::V2 => formats::try_write_snapshot_ex(&self.store, self.opts.compression, self.snap_key())?,
             FormatMode::Json => json_compat::write_json_snapshot(&self.store, self.opts.compress)?,
         };
         let snap_path = match self.mode {
@@ -1300,24 +1330,30 @@ impl Engine {
 
             return Ok(crate::segments::CompactJob::legacy());
         }
-        let full_merge = self.dirty_all
-            || self.manifest.segments.is_empty() && self.dirty.len() >= self.store.count(None)
+        let pending = self.pending_dirty_keys();
+        let full_merge = self.pending_dirty_all()
+            || self.manifest.segments.is_empty() && pending.len() >= self.store.count(None)
             || self.manifest.segments.len() >= self.opts.segment_merge_every as usize;
         let compression = self.opts.compression;
         let enc_key = self.snap_key().copied();
         let generation = self.manifest.generation + 1;
-        let seg_id = self.next_seg_id;
         let base = self.paths.base.clone();
         let start_lsn = self.last_lsn;
-        let dirty_snapshot: Vec<Vec<u8>> = self.dirty.iter().cloned().collect();
-        let dirty_all_snapshot = self.dirty_all;
+        // The job owns the keys that are dirty right now; they move to the
+        // in-flight set until finish_compact says whether they were committed.
+        let dirty_snapshot: Vec<Vec<u8>> = std::mem::take(&mut self.dirty).into_iter().collect();
+        let dirty_all_snapshot = std::mem::replace(&mut self.dirty_all, false);
+        for k in &dirty_snapshot {
+            *self.inflight.entry(k.clone()).or_insert(0) += 1;
+        }
+        if dirty_all_snapshot {
+            self.inflight_all += 1;
+        }
         let job = if full_merge {
             let mut scratch = Store::new();
             for (k, v) in self.store.iter_arc() {
                 scratch.raw_insert_arc(k, Arc::clone(v));
             }
-            self.dirty.clear();
-            self.dirty_all = false;
             crate::segments::CompactJob::full(
                 scratch,
                 compression,
@@ -1329,16 +1365,13 @@ impl Engine {
                 dirty_all_snapshot,
             )
         } else {
-            let mut scratch = Store::new();
-            for k in &dirty_snapshot {
-                if let Some(v) = self.store.get_shared(k) {
-                    scratch.raw_insert_arc(k, v);
-                } else {
-                    scratch.raw_insert(k, b"\x00DEL".to_vec().into_boxed_slice());
-                }
-            }
-            self.dirty.clear();
-            self.dirty_all = false;
+            // Delta segments must also carry keys still owned by an older
+            // in-flight job, since that job may end up stale.
+            let scratch = self.delta_scratch(&pending);
+            // Reserve the segment id now so a sync compact() running while
+            // this job computes cannot pick the same file name.
+            let seg_id = self.next_seg_id;
+            self.next_seg_id += 1;
             crate::segments::CompactJob::delta(
                 scratch,
                 compression,
@@ -1361,13 +1394,15 @@ impl Engine {
             return Ok("legacy");
         }
         if done.generation != self.manifest.generation + 1 {
-            self.dirty.extend(done.dirty_keys);
-            self.dirty_all |= done.dirty_all;
+            self.release_inflight(&done.dirty_keys, done.dirty_all, true);
             return Ok("stale");
         }
         let path = self.paths.dir.join(&done.name);
         let tmp = unique_tmp(&path);
-        write_file_atomic(&tmp, &done.bytes, &path, None)?;
+        if let Err(error) = write_file_atomic(&tmp, &done.bytes, &path, None) {
+            self.release_inflight(&done.dirty_keys, done.dirty_all, true);
+            return Err(error);
+        }
         if self.opts.durability == Durability::Durable {
             if let Ok(f) = File::open(&path) {
                 let _ = f.sync_data();
@@ -1395,10 +1430,10 @@ impl Engine {
                 self.manifest.segments.pop();
             }
             self.manifest.generation = old_generation;
-            self.dirty.extend(done.dirty_keys);
-            self.dirty_all |= done.dirty_all;
+            self.release_inflight(&done.dirty_keys, done.dirty_all, true);
             return Err(error);
         }
+        self.release_inflight(&done.dirty_keys, done.dirty_all, false);
         for seg in old_segments {
             let _ = std::fs::remove_file(self.paths.dir.join(&seg.name));
         }
@@ -1409,6 +1444,69 @@ impl Engine {
         Ok("committed")
     }
 
+
+    /// Keys whose latest state is not yet in the snapshot/segments: the dirty
+    /// set plus keys held by async jobs that have not committed.
+    fn pending_dirty_keys(&self) -> Vec<Vec<u8>> {
+        if self.inflight.is_empty() {
+            return self.dirty.iter().cloned().collect();
+        }
+        let mut all: BTreeSet<Vec<u8>> = self.dirty.clone();
+        all.extend(self.inflight.keys().cloned());
+        all.into_iter().collect()
+    }
+
+    fn pending_dirty_all(&self) -> bool {
+        self.dirty_all || self.inflight_all > 0
+    }
+
+    fn has_pending_changes(&self) -> bool {
+        !self.dirty.is_empty() || self.dirty_all || !self.inflight.is_empty() || self.inflight_all > 0
+    }
+
+    /// Build a delta segment image for `keys`: current value, or a tombstone.
+    fn delta_scratch(&mut self, keys: &[Vec<u8>]) -> Store {
+        let mut scratch = Store::new();
+        for k in keys {
+            let value = match self.store.get_shared(k) {
+                Some(v) => Some(v),
+                // Raw keys are opaque: exact lookup only. JSON keys may live
+                // inside an object leaf, so resolve them the way get() does.
+                None if crate::store::is_raw_key(k) => None,
+                None => self.store.get(k).map(Arc::from),
+            };
+            match value {
+                Some(v) => scratch.raw_insert_arc(k, v),
+                None => scratch.raw_insert(k, b"\x00DEL".to_vec().into_boxed_slice()),
+            }
+        }
+        scratch
+    }
+
+    /// Drop an async job's keys from the in-flight set; when the job did not
+    /// commit, hand them back to the dirty set.
+    fn release_inflight(&mut self, keys: &[Vec<u8>], all: bool, restore: bool) {
+        for k in keys {
+            if let Some(count) = self.inflight.get_mut(k) {
+                *count -= 1;
+                if *count == 0 {
+                    self.inflight.remove(k);
+                }
+            }
+        }
+        if all {
+            self.inflight_all = self.inflight_all.saturating_sub(1);
+        }
+        if restore {
+            self.dirty.extend(keys.iter().cloned());
+            self.dirty_all |= all;
+        }
+    }
+
+    /// Give an async job's keys back when it failed before finish_compact.
+    pub fn abort_compact(&mut self, dirty_keys: &[Vec<u8>], dirty_all: bool) {
+        self.release_inflight(dirty_keys, dirty_all, true);
+    }
 
     fn prepare_backup_content(&self, raw: &[u8]) -> Result<Vec<u8>> {
         if self.mode != FormatMode::Json || !self.opts.compress {
@@ -1483,7 +1581,7 @@ impl Engine {
             return Ok(());
         }
         self.wal_flush()?;
-        if self.wal_ops > 0 || !self.dirty.is_empty() || self.dirty_all {
+        if self.wal_ops > 0 || self.has_pending_changes() {
             self.compact()?;
         }
         self.closed = true;
@@ -1557,17 +1655,31 @@ impl Engine {
 impl Engine {
 
 
+    fn check_raw_supported(&self) -> Result<()> {
+        if self.mode == FormatMode::Json {
+            return Err(SpectreError::new(
+                codes::OPERATION_FAILED,
+                "Raw binary values require the v2 format (the JSON format cannot store binary); call migrate('v2') first",
+            ));
+        }
+        Ok(())
+    }
+
     pub fn set_raw(&mut self, key: &str, bytes: &[u8]) -> Result<()> {
         self.check_open()?;
+        self.check_raw_supported()?;
         self.checkpoint_gate()?;
         validator::validate_key_fast(key)?;
         validator::validate_value_size(bytes.len())?;
+        let raw_key = [b"\x00".as_slice(), key.as_bytes()].concat();
         self.wal_append(&Op::Set {
-            key: [b"\x00".as_slice(), key.as_bytes()].concat(),
+            key: raw_key.clone(),
             value: bytes.to_vec().into_boxed_slice(),
         })?;
         self.store.set_raw(key.as_bytes(), bytes.to_vec().into_boxed_slice());
-        self.dirty.insert(key.as_bytes().to_vec());
+        // Track the prefixed key: the bare name would make delta compaction
+        // look up (and tombstone) the JSON key of the same name instead.
+        self.dirty.insert(raw_key);
         Ok(())
     }
 
@@ -1584,13 +1696,15 @@ impl Engine {
 
     pub fn delete_raw(&mut self, key: &str) -> Result<bool> {
         self.check_open()?;
+        if self.mode == FormatMode::Json {
+            return Ok(false);
+        }
         self.checkpoint_gate()?;
         validator::validate_key_fast(key)?;
-        self.wal_append(&Op::Del {
-            key: [b"\x00".as_slice(), key.as_bytes()].concat(),
-        })?;
+        let raw_key = [b"\x00".as_slice(), key.as_bytes()].concat();
+        self.wal_append(&Op::Del { key: raw_key.clone() })?;
         if self.store.delete_raw(key.as_bytes()) {
-            self.dirty.insert(key.as_bytes().to_vec());
+            self.dirty.insert(raw_key);
             Ok(true)
         } else {
             Ok(false)
@@ -1811,6 +1925,20 @@ impl Engine {
 
     pub fn compact_mode(&self) -> CompactMode {
         self.opts.compact_mode
+    }
+
+    /// Test helper: simulate a process crash (no flush, no compaction; the
+    /// OS lock is released as the kernel would do it).
+    #[cfg(test)]
+    pub(crate) fn simulate_crash(mut self) {
+        if let Some(lock) = self.lock.as_mut() {
+            lock.abandon();
+        }
+        std::mem::forget(self);
+    }
+
+    pub fn backup_count(&self) -> u32 {
+        self.opts.backup_count
     }
 }
 

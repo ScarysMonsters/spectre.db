@@ -100,9 +100,9 @@ impl CompactJob {
     }
 
 
-    pub fn compute(mut self) -> CompactJobDone {
+    pub fn compute(mut self) -> crate::error::Result<CompactJobDone> {
         if self.legacy {
-            return CompactJobDone {
+            return Ok(CompactJobDone {
                 legacy: true,
                 full: false,
                 generation: 0,
@@ -114,17 +114,17 @@ impl CompactJob {
                 start_lsn: 0,
                 dirty_keys: Vec::new(),
                 dirty_all: false,
-            };
+            });
         }
         let scratch = self.scratch.take().unwrap_or_default();
-        let bytes = formats::write_snapshot_ex(&scratch, self.compression, self.enc_key.as_ref());
+        let bytes = formats::try_write_snapshot_ex(&scratch, self.compression, self.enc_key.as_ref())?;
         let crc = crc32fast::hash(&bytes);
         let name = if self.full {
             format!("{}.spseg-full-{}", self.base, self.generation)
         } else {
             format!("{}.spseg-{}", self.base, self.seg_id)
         };
-        CompactJobDone {
+        Ok(CompactJobDone {
             legacy: false,
             full: self.full,
             generation: self.generation,
@@ -136,7 +136,7 @@ impl CompactJob {
             start_lsn: self.start_lsn,
             dirty_keys: self.dirty_keys,
             dirty_all: self.dirty_all,
-        }
+        })
     }
 }
 
@@ -149,7 +149,7 @@ mod tests {
         let mut s = Store::new();
         s.set(b"k", b"1".to_vec().into_boxed_slice());
         let job = CompactJob::delta(s, Compression::Zstd, None, 7, 3, "db".into(), 0, Vec::new(), false);
-        let done = job.compute();
+        let done = job.compute().unwrap();
         assert_eq!(done.name, "db.spseg-3");
         assert_eq!(done.generation, 7);
         let mut back = formats::load_snapshot(&done.bytes, None).unwrap();
