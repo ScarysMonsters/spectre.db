@@ -105,7 +105,9 @@ fn to_core_options(o: Option<&EngineOptions>) -> core::EngineOptions {
         encryption_key: o.encryption_key.as_ref().map(|s| s.as_bytes().to_vec()),
         encrypt_backups: o.encrypt_backups.unwrap_or(false),
         encrypt_snapshot: o.encrypt_snapshot.unwrap_or(false),
-        scrypt_log_n: o.scrypt_log_n.map(|v| v as u8).unwrap_or(14),
+        // Out-of-range values are clamped to an invalid-but-u8 value so scrypt
+        // rejects them, instead of silently wrapping (e.g. 270 -> 14).
+        scrypt_log_n: o.scrypt_log_n.map(|v| v.min(u8::MAX as u32) as u8).unwrap_or(14),
         scrypt_r: o.scrypt_r.unwrap_or(8),
         scrypt_p: o.scrypt_p.unwrap_or(1),
         backup_count: o.backup_count.unwrap_or(3),
@@ -200,20 +202,30 @@ impl SpectreEngine {
 
     #[napi]
     pub fn batch(&self, ops: Vec<BatchOp>) -> napi::Result<Vec<bool>> {
-        let core_ops: Vec<core::Op> = ops
-            .into_iter()
-            .map(|op| match op.r#type.as_str() {
+        let mut core_ops: Vec<core::Op> = Vec::with_capacity(ops.len());
+        for op in ops {
+            core_ops.push(match op.r#type.as_str() {
                 "set" | "add" | "sub" | "push" | "pull" => {
-                    let json = op.json.unwrap_or_else(|| "null".to_string());
+                    // A missing payload used to be stored as `null`; that hides
+                    // `undefined` values and typos in the caller.
+                    let json = op.json.ok_or_else(|| {
+                        napi::Error::new(
+                            napi::Status::InvalidArg,
+                            format!("1103|Batch op \"{}\" on key \"{}\" has no JSON value", op.r#type, op.key),
+                        )
+                    })?;
                     core::Op::Set { key: op.key.into_bytes(), value: json.into_bytes().into_boxed_slice() }
                 }
                 "delete" => core::Op::Del { key: op.key.into_bytes() },
-                other => core::Op::Set {
-                    key: op.key.into_bytes(),
-                    value: format!("\"unsupported:{}\"", other).into_bytes().into_boxed_slice(),
-                },
-            })
-            .collect();
+                // Unknown types used to be written as the string "unsupported:<type>".
+                other => {
+                    return Err(napi::Error::new(
+                        napi::Status::InvalidArg,
+                        format!("9002|Unknown batch operation type: \"{}\"", other),
+                    ))
+                }
+            });
+        }
         lock(&self.inner).batch(core_ops).map_err(to_napi_err)
     }
 
@@ -354,10 +366,13 @@ impl SpectreEngine {
 
     #[napi]
     pub fn stats(&self) -> napi::Result<StatsObject> {
-        let st = lock(&self.inner).stats().map_err(to_napi_err)?;
+        let (st, backup_count) = {
+            let guard = lock(&self.inner);
+            (guard.stats().map_err(to_napi_err)?, guard.backup_count())
+        };
         Ok(StatsObject {
             driver: "spectre.db".to_string(),
-            engine: "spectre.db/2.1.2 (rust)".to_string(),
+            engine: concat!("spectre.db/", env!("CARGO_PKG_VERSION"), " (rust)").to_string(),
             format: st.format,
             compress: st.compress,
             compression: st.compression,
@@ -372,7 +387,7 @@ impl SpectreEngine {
             wal_bytes: st.wal_bytes as f64,
             snapshot_path: st.snapshot_path,
             wal_path: st.wal_path,
-            backup_count: 3.0,
+            backup_count: backup_count as f64,
             pending_writes: st.pending_writes as f64,
             cache_hits: st.cache_hits as f64,
             cache_misses: st.cache_misses as f64,
@@ -475,8 +490,19 @@ impl<'task> napi::ScopedTask<'task> for CompactTask {
             lock(&self.engine).compact().map_err(to_napi_err)?;
             return Ok("legacy".to_string());
         }
-        self.done = Some(job.compute());
-        Ok("computed".to_string())
+        let (keys, all) = (job.dirty_keys.clone(), job.dirty_all);
+        match job.compute() {
+            Ok(done) => {
+                self.done = Some(done);
+                Ok("computed".to_string())
+            }
+            Err(e) => {
+                // resolve() is never called on error: give the keys back now
+                // so they are not stuck in the in-flight set.
+                lock(&self.engine).abort_compact(&keys, all);
+                Err(to_napi_err(e))
+            }
+        }
     }
 
     fn resolve(&mut self, env: &'task Env, output: Self::Output) -> napi::Result<Self::JsValue> {

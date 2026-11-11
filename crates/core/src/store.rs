@@ -150,6 +150,12 @@ impl Store {
         removed
     }
 
+    /// Remove exactly `key` (no descendant cascade, no object descent).
+    /// Used for raw keys, whose names are opaque and never form a JSON tree.
+    pub fn remove_exact(&mut self, key: &[u8]) -> bool {
+        self.remove_entry(key)
+    }
+
     pub fn contains(&self, key: &[u8]) -> bool {
         self.hash.contains_key(key)
     }

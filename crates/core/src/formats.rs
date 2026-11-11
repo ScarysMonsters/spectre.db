@@ -104,8 +104,19 @@ pub fn write_snapshot(store: &Store, compress: bool) -> Vec<u8> {
 }
 
 pub fn write_snapshot_ex(store: &Store, algo: Compression, key: Option<&[u8; crypto::KEY_LEN]>) -> Vec<u8> {
+    try_write_snapshot_ex(store, algo, key).expect("snapshot encoding failed")
+}
+
+/// Encode a snapshot. Fails instead of silently writing a file whose header
+/// flags (compressed / encrypted) do not match its payload, which is what the
+/// previous best-effort fallbacks did and which made the file unreadable.
+pub fn try_write_snapshot_ex(
+    store: &Store,
+    algo: Compression,
+    key: Option<&[u8; crypto::KEY_LEN]>,
+) -> Result<Vec<u8>> {
     let mut body: Vec<u8> = Vec::with_capacity(16 + (store.len() * 48) + store.value_bytes() as usize);
-    body.extend_from_slice(&store.len().to_le_bytes());
+    body.extend_from_slice(&(store.len() as u64).to_le_bytes());
     for (k, v) in store.iter() {
         body.extend_from_slice(&(k.len() as u32).to_le_bytes());
         body.extend_from_slice(k);
@@ -118,18 +129,17 @@ pub fn write_snapshot_ex(store: &Store, algo: Compression, key: Option<&[u8; cry
         Compression::None => body,
         Compression::Gzip => {
             let mut enc = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::fast());
-            let _ = enc.write_all(&body);
-            enc.finish().unwrap_or(body)
+            enc.write_all(&body)
+                .and_then(|_| enc.finish())
+                .map_err(|e| SpectreError::write_failed(format!("Gzip compression failed: {}", e)))?
         }
-        Compression::Zstd => {
-
-            zstd::encode_all(&body[..], 3).unwrap_or(body)
-        }
+        Compression::Zstd => zstd::encode_all(&body[..], 3)
+            .map_err(|e| SpectreError::write_failed(format!("Zstd compression failed: {}", e)))?,
     };
     let payload = match key {
         Some(k) => {
             flags |= FLAG_ENCRYPTED;
-            crypto::encrypt_snapshot(&payload, k).unwrap_or_else(|_| payload)
+            crypto::encrypt_snapshot(&payload, k)?
         }
         None => payload,
     };
@@ -143,7 +153,7 @@ pub fn write_snapshot_ex(store: &Store, algo: Compression, key: Option<&[u8; cry
     let mut crc = Crc::new();
     crc.update(&out);
     out.extend_from_slice(&crc.finalize().to_le_bytes());
-    out
+    Ok(out)
 }
 
 pub fn load_snapshot(bytes: &[u8], key: Option<&[u8; crypto::KEY_LEN]>) -> Result<Store> {
@@ -215,7 +225,10 @@ pub fn load_snapshot(bytes: &[u8], key: Option<&[u8; crypto::KEY_LEN]>) -> Resul
         }
         let val = body[off..off + vlen].to_vec().into_boxed_slice();
         off += vlen;
-        store.set(&key, val);
+        // A snapshot is a verbatim dump of the store map: rebuild it exactly.
+        // Going through `set` would apply JSON-path semantics and could drop
+        // raw keys such as `\0a` when `\0a.b` follows it.
+        store.raw_insert(&key, val);
     }
     Ok(store)
 }
@@ -358,11 +371,19 @@ pub fn apply_ops(store: &mut Store, ops: &[Op]) -> usize {
     for op in ops {
         match op {
             Op::Set { key, value } => {
-                store.set(key, value.clone());
+                if crate::store::is_raw_key(key) {
+                    store.raw_insert(key, value.clone());
+                } else {
+                    store.set(key, value.clone());
+                }
                 n += 1;
             }
             Op::Del { key } => {
-                store.delete(key);
+                if crate::store::is_raw_key(key) {
+                    store.remove_exact(key);
+                } else {
+                    store.delete(key);
+                }
                 n += 1;
             }
             Op::Clear => {
@@ -617,42 +638,37 @@ pub fn decode_manifest(bytes: &[u8]) -> Result<Manifest> {
         )));
     }
     let mut m = Manifest { generation: u64::from_le_bytes(bytes[12..20].try_into().unwrap()), ..Default::default() };
+    // Everything after the header is read through a bounds-checked cursor
+    // that stops before the trailing CRC, so a truncated or crafted manifest
+    // yields an error instead of a panic.
+    let body = &bytes[..bytes.len() - 4];
     let mut off = 20usize;
-    let rd_u32 = |off: &mut usize| -> u32 {
-        let v = u32::from_le_bytes(bytes[*off..*off + 4].try_into().unwrap());
-        *off += 4;
-        v
+    let truncated = || SpectreError::snapshot_corrupted("Truncated manifest");
+    let take = |off: &mut usize, n: usize| -> Result<&[u8]> {
+        let end = off.checked_add(n).filter(|&e| e <= body.len()).ok_or_else(truncated)?;
+        let out = &body[*off..end];
+        *off = end;
+        Ok(out)
     };
-    let rd_u64 = |off: &mut usize| -> u64 {
-        let v = u64::from_le_bytes(bytes[*off..*off + 8].try_into().unwrap());
-        *off += 8;
-        v
-    };
-    let idx_count = rd_u32(&mut off) as usize;
+    let idx_count = u32::from_le_bytes(take(&mut off, 4)?.try_into().unwrap()) as usize;
     for _ in 0..idx_count {
-        let l = u16::from_le_bytes(bytes[off..off + 2].try_into().unwrap()) as usize;
-        off += 2;
-        if off + l > bytes.len() {
-            return Err(SpectreError::snapshot_corrupted("Truncated manifest index"));
-        }
-        let s = String::from_utf8_lossy(&bytes[off..off + l]).into_owned();
-        off += l;
-        m.indexes.push(s);
+        let l = u16::from_le_bytes(take(&mut off, 2)?.try_into().unwrap()) as usize;
+        m.indexes.push(String::from_utf8_lossy(take(&mut off, l)?).into_owned());
     }
-    let seg_count = rd_u32(&mut off) as usize;
+    let seg_count = u32::from_le_bytes(take(&mut off, 4)?.try_into().unwrap()) as usize;
     for _ in 0..seg_count {
-        let id = rd_u64(&mut off);
-        let gen = rd_u64(&mut off);
-        let entries = rd_u64(&mut off);
-        let name_len = u16::from_le_bytes(bytes[off..off + 2].try_into().unwrap()) as usize;
-        off += 2;
-        if off + name_len + 4 > bytes.len() {
-            return Err(SpectreError::snapshot_corrupted("Truncated manifest segment"));
+        let id = u64::from_le_bytes(take(&mut off, 8)?.try_into().unwrap());
+        let gen = u64::from_le_bytes(take(&mut off, 8)?.try_into().unwrap());
+        let entries = u64::from_le_bytes(take(&mut off, 8)?.try_into().unwrap());
+        let name_len = u16::from_le_bytes(take(&mut off, 2)?.try_into().unwrap()) as usize;
+        let raw_name = take(&mut off, name_len)?;
+        let file_crc = u32::from_le_bytes(take(&mut off, 4)?.try_into().unwrap());
+        let name = String::from_utf8_lossy(raw_name).into_owned();
+        // Segment names come from disk: refuse anything that could point
+        // outside the database directory.
+        if name.contains('/') || name.contains('\\') || name.contains("..") {
+            return Err(SpectreError::snapshot_corrupted("Invalid segment name in manifest"));
         }
-        let name = String::from_utf8_lossy(&bytes[off..off + name_len]).into_owned();
-        off += name_len;
-        let file_crc = u32::from_le_bytes(bytes[off..off + 4].try_into().unwrap());
-        off += 4;
         m.segments.push(ManifestEntry { id, gen, entries, name, file_crc });
     }
     Ok(m)

@@ -11,7 +11,8 @@ pub fn order_key(v: &Value) -> Vec<u8> {
         Value::Bool(true) => out.push(0x02),
         Value::Number(n) => {
             out.push(0x03);
-            let f = n.as_f64().unwrap_or(0.0);
+            // -0.0 and 0.0 are equal in JSON/JS: give them one encoding.
+            let f = n.as_f64().unwrap_or(0.0) + 0.0;
             let bits = f.to_bits();
             let sortable = if bits >> 63 == 1 { !bits } else { bits | (1 << 63) };
             out.extend_from_slice(&sortable.to_be_bytes());

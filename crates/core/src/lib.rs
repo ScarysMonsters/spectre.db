@@ -10,6 +10,9 @@ pub mod segments;
 pub mod store;
 pub mod validator;
 
+#[cfg(test)]
+mod regressions;
+
 pub use engine::{CompactMode, Durability, Engine, EngineOptions, FormatMode, InitEvent, Stats};
 pub use error::{Result, SpectreError};
 pub use formats::Op;
@@ -76,7 +79,7 @@ mod tests {
             db.delete("a").unwrap();
             db.clear().unwrap();
             db.set("c", b"3").unwrap();
-            std::mem::forget(db);
+            db.simulate_crash();
         }
         let lock_path = dir.join("data.lock");
         std::fs::write(&lock_path, "999999999\n").unwrap();
@@ -493,7 +496,7 @@ mod v2_tests {
         assert_eq!(db.get_raw("img.1").unwrap().unwrap(), vec![0xFF, 0xD8, 0xFF, 0x00, 0x42]);
         assert_eq!(db.get_raw("user.1").unwrap(), None);
 
-        std::mem::forget(db);
+        db.simulate_crash();
         std::fs::write(dir.join("r.lock"), "999999999\n").unwrap();
         let mut db = Engine::open(&path, opts()).unwrap();
         assert_eq!(db.get_raw("img.1").unwrap().unwrap()[0], 0xFF);
@@ -1037,7 +1040,7 @@ mod v2_tests {
 
         let job = db.prepare_compact().unwrap();
         assert!(!job.legacy);
-        let done = job.compute();
+        let done = job.compute().unwrap();
 
         db.set("k0", br#"{"v":100}"#).unwrap();
         db.set("new", b"1").unwrap();
@@ -1117,7 +1120,7 @@ mod v2_tests {
         ])
         .unwrap();
         assert_eq!(db.stats().unwrap().wal_ops, 1);
-        std::mem::forget(db);
+        db.simulate_crash();
         std::fs::write(dir.join("b.lock"), "999999999\n").unwrap();
         let mut db = Engine::open(&path, opts()).unwrap();
         assert_eq!(db.get("x").unwrap(), None);

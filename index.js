@@ -132,6 +132,27 @@ function mapLegacyOptions(opts = {}) {
 }
 
 
+function toJson(value) {
+  if (value === undefined) {
+    throw new TypeError('[spectre.db] value must be JSON-serializable: undefined is not supported (v1.1.0 dropped it silently at compaction)');
+  }
+  try {
+    return JSON.stringify(value);
+  } catch (err) {
+    if (/circular/i.test(err.message)) {
+      const e = new Error('Circular reference detected');
+      e.code = 1102;
+      throw e;
+    }
+    if (/BigInt/i.test(err.message)) {
+      const e = new TypeError('BigInt not supported');
+      e.code = 1103;
+      throw e;
+    }
+    throw err;
+  }
+}
+
 function decodeNativeError(err) {
   const m = typeof err?.message === 'string' ? err.message.match(/^(\d+)\|([\s\S]*)$/) : null;
   if (!m) return err;
@@ -225,7 +246,12 @@ class Database extends EventEmitter {
         try {
           const st = ncall(this._engine, 'stats');
           if (st.walOps >= opts.compactThreshold) {
-            this.compact().catch((err) => {
+            if (this._compacting) return;
+            this._compacting = true;
+            // compactAsync encodes the segment on the libuv pool instead of
+            // blocking the event loop for the whole snapshot write.
+            this.compactAsync().finally(() => { this._compacting = false; }).catch((err) => {
+              if (this._closed) return; // close() already persisted everything
               if (this.listenerCount('warn') > 0) this.emit('warn', err);
               else console.warn('[spectre.db] background compaction failed:', err && err.message ? err.message : err);
             });
@@ -280,25 +306,7 @@ class Database extends EventEmitter {
     this._assertOpen();
     key = normKey(key);
     if (this._engineKind === 'fallback') return this._engine.set(key, value);
-    if (value === undefined) {
-      throw new TypeError('[spectre.db] value must be JSON-serializable: undefined is not supported (v1.1.0 dropped it silently at compaction)');
-    }
-    let json;
-    try {
-      json = JSON.stringify(value);
-    } catch (err) {
-      if (/circular/i.test(err.message)) {
-        const e = new Error('Circular reference detected');
-        e.code = 1102;
-        throw e;
-      }
-      if (/BigInt/i.test(err.message)) {
-        const e = new TypeError('BigInt not supported');
-        e.code = 1103;
-        throw e;
-      }
-      throw err;
-    }
+    const json = toJson(value);
     ncall(this._engine, 'setJson', key, json);
     this.emit('change', { type: 'set', key, value });
     return value;
@@ -335,11 +343,21 @@ class Database extends EventEmitter {
     const jsons = new Array(entries.length);
     for (let i = 0; i < entries.length; i++) {
       const entry = entries[i];
+      if (!Array.isArray(entry)) {
+        throw new TypeError(`[spectre.db] setMany() expects [key, value] pairs, got ${typeof entry} at index ${i}`);
+      }
       keys[i] = normKey(entry[0]);
-      jsons[i] = JSON.stringify(entry[1]);
+      jsons[i] = toJson(entry[1]);
       results[i] = entry[1];
     }
-    if (entries.length > 0) ncall(this._engine, 'setManyPairs', keys, jsons);
+    if (entries.length > 0) {
+      ncall(this._engine, 'setManyPairs', keys, jsons);
+      if (this.listenerCount('change') > 0) {
+        for (let i = 0; i < keys.length; i++) {
+          this.emit('change', { type: 'set', key: keys[i], value: results[i] });
+        }
+      }
+    }
     return results;
   }
 
@@ -546,10 +564,19 @@ class Database extends EventEmitter {
     if (this._engineKind === 'fallback') {
 
 
-      const entries = this.all(prefix)
-        .filter(({ ID }) => !after || ID > after)
+      // The JS engine keeps one nested object, so rebuild the records the
+      // native engine would return: one row per key one level below the
+      // prefix (`user.` -> `user.1`, `user.2`), not one row per leaf field.
+      const depth = (prefix ? prefix.split('.').filter(Boolean).length : 0) + 1;
+      const ids = new Set();
+      for (const { ID } of this.all(prefix)) {
+        ids.add(ID.split('.').slice(0, depth).join('.'));
+      }
+      const entries = [...ids]
+        .filter((ID) => (!prefix || ID.startsWith(prefix)) && (!after || ID > after))
+        .sort((x, y) => (x < y ? -1 : x > y ? 1 : 0))
         .slice(0, limit)
-        .map(({ ID, data }) => [ID, data]);
+        .map((ID) => [ID, this.get(ID)]);
       const isEnd = entries.length < limit;
       return {
         rows: entries,
@@ -566,6 +593,7 @@ class Database extends EventEmitter {
       throw new Error('[spectre.db] setRaw() requires the native engine (JS fallback stores JSON only)');
     }
     this._assertOpen();
+    key = normKey(key);
     const buf = Buffer.isBuffer(data) ? data : Buffer.from(data);
     ncall(this._engine, 'setRaw', key, buf);
     this.emit('change', { type: 'setRaw', key, size: buf.length });
@@ -577,12 +605,13 @@ class Database extends EventEmitter {
       throw new Error('[spectre.db] getRaw() requires the native engine (JS fallback stores JSON only)');
     }
     this._assertOpen();
-    return ncall(this._engine, 'getRaw', key) ?? null;
+    return ncall(this._engine, 'getRaw', normKey(key)) ?? null;
   }
 
   deleteRaw(key) {
     if (this._engineKind === 'fallback') return false;
     this._assertOpen();
+    key = normKey(key);
     const deleted = ncall(this._engine, 'deleteRaw', key);
     if (deleted) this.emit('change', { type: 'deleteRaw', key });
     return deleted;
@@ -741,7 +770,7 @@ class Database extends EventEmitter {
       for (const op of arg) {
         switch (op.type) {
           case 'set':
-            ops.push({ type: 'set', key: op.key, json: JSON.stringify(op.value) });
+            ops.push({ type: 'set', key: op.key, json: toJson(op.value) });
             results.push(op.value);
             break;
           case 'delete':
@@ -794,15 +823,20 @@ class Database extends EventEmitter {
           const raw = resolveJson(key);
           return raw == null ? null : JSON.parse(raw);
         },
+        // Re-staging a key moves it to the end so the committed batch keeps
+        // the order of the *last* write to each key (set a.b, delete a,
+        // set a.b must end with a.b present).
         set: (key, value) => {
           key = normKey(key);
-          const json = JSON.stringify(value);
+          const json = toJson(value);
+          staged.delete(key);
           staged.set(key, { json });
           return value;
         },
         delete: (key) => {
           key = normKey(key);
           const existed = resolveJson(key) != null;
+          staged.delete(key);
           staged.set(key, { deleted: true });
           return existed;
         },
@@ -1088,4 +1122,4 @@ class Table {
   }
 }
 
-module.exports = { Database, Table, hasNativeEngine: nativeBinding != null, version: '2.1.2' };
+module.exports = { Database, Table, hasNativeEngine: nativeBinding != null, version: require('./package.json').version };
