@@ -2,7 +2,7 @@
 
 spectre.db is the same project as spectre.db 1.x by ScarysMonsters, rewritten in Rust. It is not a fork: v2 keeps the same API and JSON compatibility while replacing the JavaScript engine with a native Rust core.
 
-## Unreleased
+## 2.1.3 (2026-11-11)
 
 Durability audit of 2.1.2. No on-disk format change: existing v1.1.0 and v2.1.x databases open unchanged. Every fix below has a reopen-from-disk regression test (`crates/core/src/regressions.rs`, `tests/engine.test.js`).
 

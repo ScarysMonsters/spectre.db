@@ -80,8 +80,17 @@
 - [x] **TypeScript types** — first-class `index.d.ts`
 - [x] **Prebuilt binaries** — Linux (glibc/musl), macOS (x64/arm64), Windows (x64); no compilation on install
 
-### Current release — v2.1.2
+### Current release — v2.1.3
 
+Durability release: no on-disk format change, no API break.
+
+- **Data-loss fixes** — raw values and nested raw keys across segments, snapshot reload and WAL replay; `compactAsync()` full merges no longer resurrect deleted keys; `close()` or `compact()` during `compactAsync()` no longer drops or overwrites data; `compactMode: "auto"` retires stale segments when falling back to legacy
+- **OS-level file lock** — `flock` / `LockFileEx` on top of the PID file: no stale-lock takeover race, crashed owners released by the kernel, still compatible with the JS fallback
+- **Stricter writes** — unknown batch ops and `undefined` values are rejected instead of being stored; snapshot encoding errors are reported instead of writing an unreadable file
+- **Encrypted fields inside objects** — `get("user.password")` returns the decrypted value
+- **Non-blocking background compaction** — the `compactInterval` timer uses `compactAsync()`
+
+### Previous release — v2.1.2
 - **Crash-safe recovery** — WAL tail truncation, safe backup rotation, directory fsync, and segment/WAL ordering fixes
 - **Encryption coverage** — sensitive values are encrypted through `setMany`, `transaction`, and batch paths
 - **NFC keys** — string keys, prefixes, scans, cursors, bulk helpers, and transactions normalize to Unicode NFC
