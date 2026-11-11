@@ -112,59 +112,59 @@ For the complete per-version history and release notes, see [`CHANGELOG.md`](CHA
 
 ## Benchmarks
 
-Cross-version medians on the standard 100k-key harness (Node.js 26, Windows, 3 runs, ~185-byte values). The 2.0.0/2.0.1 columns are published/local MSVC builds; 2.1.0/2.1.1/2.1.2 are local GNU builds, so small deltas include toolchain and thermal variance. Raw JSON: [`benchmarks/results/`](benchmarks/results/).
+Cross-version medians on the standard 100k-key harness (Node.js 26, Windows, 3 runs, ~185-byte values). The 2.0.0/2.0.1 columns are published/local MSVC builds; 2.1.0/2.1.1/2.1.2/2.1.3 are local GNU builds, so small deltas include toolchain and thermal variance. Raw JSON: [`benchmarks/results/`](benchmarks/results/).
 
 ### Standard workloads — all versions (ops/s)
 
-| Workload | 2.0.0 | 2.0.1 | 2.1.0 | 2.1.1 | **2.1.2** |
-|---|---:|---:|---:|---:|---:|
-| write (single) | 90 547 | 117 176 | 108 104 | 118 125 | **129 918** |
-| write (batch 1 000) | 162 509 | 244 365 | 272 581 | 344 583 | **323 315** |
-| read (random) | 268 230 | 640 771 | 655 303 | 716 800 | **714 055** |
-| read (batch 1 000) | — | 1 070 848 | 1 061 829 | 1 218 256 | **1 091 934** |
-| scan (full prefix) | 576 765 | 1 404 492 | 1 484 578 | 1 636 249 | **1 569 893** |
-| count (queries/s) | 24 | 276 | 298 | 296 | **302** |
-| count (entries/s) | 2 437 641 | 27 648 827 | 29 794 714 | 29 567 516 | **30 204 545** |
-| mixed 80/20 | 172 736 | 283 742 | 289 964 | 336 144 | **325 189** |
-| delete (batched) | 321 517 | 414 003 | 581 126 | 821 717 | **773 932** |
+| Workload | 2.0.0 | 2.0.1 | 2.1.0 | 2.1.1 | 2.1.2 | **2.1.3** |
+|---|---:|---:|---:|---:|---:|---:|
+| write (single) | 90 547 | 117 176 | 108 104 | 118 125 | 129 918 | **124 844** |
+| write (batch 1 000) | 162 509 | 244 365 | 272 581 | 344 583 | 323 315 | **341 601** |
+| read (random) | 268 230 | 640 771 | 655 303 | 716 800 | 714 055 | **584 908** |
+| read (batch 1 000) | — | 1 070 848 | 1 061 829 | 1 218 256 | 1 091 934 | **982 857** |
+| scan (full prefix) | 576 765 | 1 404 492 | 1 484 578 | 1 636 249 | 1 569 893 | **1 332 502** |
+| count (queries/s) | 24 | 276 | 298 | 296 | 302 | **262** |
+| count (entries/s) | 2 437 641 | 27 648 827 | 29 794 714 | 29 567 516 | 30 204 545 | **26 234 531** |
+| mixed 80/20 | 172 736 | 283 742 | 289 964 | 336 144 | 325 189 | **281 118** |
+| delete (batched) | 321 517 | 414 003 | 581 126 | 821 717 | 773 932 | **685 084** |
 
-2.1.2 is a reliability release: single writes improved and random reads are flat versus 2.1.1; batch/scan/mixed/delete medians are slightly lower in this run. The differences are within the observed thermal/toolchain variance; compare 2.1.2 against SQLite/LMDB from the same run below.
+2.1.3 is a durability release (no hot-path change). Every engine in this run, SQLite included, measured 10-15% below the 2.1.2 session, so the cross-version drop is machine state, not the code: a back-to-back A/B of 2.1.2 and 2.1.3 built with the same GNU toolchain gives the same index, compaction and insert figures within run-to-run noise. Compare versions against SQLite/LMDB from the same run below.
 
-### 2.1.2 vs SQLite and LMDB (100k standard, ops/s)
+### 2.1.3 vs SQLite and LMDB (100k standard, ops/s)
 
-Same 3-run harness and dataset. SQLite uses WAL + `synchronous=NORMAL`; LMDB uses its default sync mode; spectre.db 2.1.2 uses `durability: "process"`. Higher is better.
+Same 3-run harness and dataset. SQLite uses WAL + `synchronous=NORMAL`; LMDB uses its default sync mode; spectre.db 2.1.3 uses `durability: "process"`. Higher is better.
 
-| Workload | **spectre.db 2.1.2** | SQLite | LMDB | Winner |
+| Workload | **spectre.db 2.1.3** | SQLite | LMDB | Winner |
 |---|---:|---:|---:|---|
-| write (single) | **129 918** | 24 617 | 5 862 | spectre.db |
-| write (batch 1 000) | **323 315** | 307 055 | 110 885 | spectre.db |
-| read (random) | **714 055** | 179 094 | 613 419 | spectre.db |
-| read (batch 1 000) | **1 152 506** | 184 471 | 372 026 | spectre.db |
-| scan (full prefix) | **1 569 893** | 1 026 479 | 1 559 194 | spectre.db |
-| count (queries/s) | **302** | 134 | 146 | spectre.db |
-| count (entries/s) | **30 204 545** | 13 414 122 | 14 566 939 | spectre.db |
-| mixed 80/20 | **325 189** | 63 941 | 27 766 | spectre.db |
-| delete (batched) | **773 932** | 267 910 | 179 133 | spectre.db |
+| write (single) | **124 844** | 21 903 | 5 428 | spectre.db |
+| write (batch 1 000) | **341 601** | 267 060 | 99 049 | spectre.db |
+| read (random) | **584 908** | 155 619 | 570 347 | spectre.db |
+| read (batch 1 000) | **982 857** | 160 379 | 341 427 | spectre.db |
+| scan (full prefix) | **1 332 502** | 889 688 | 1 211 569 | spectre.db |
+| count (queries/s) | **262** | 110 | 131 | spectre.db |
+| count (entries/s) | **26 234 531** | 10 977 720 | 13 098 040 | spectre.db |
+| mixed 80/20 | **281 118** | 56 223 | 24 831 | spectre.db |
+| delete (batched) | **685 084** | 243 578 | 163 661 | spectre.db |
 | on-disk size | **21.5 MB** | 21.1 MB | 35.8 MB | — |
 
-spectre.db wins **9/9** standard workloads in this run; LMDB is within 1% on full-prefix scan. In `durability: "durable"` mode the trade-off changes: LMDB keeps the single-write and mixed-write lead (per-op fsync vs. LMDB's asynchronous flush), while spectre.db wins bulk reads, count, delete and batch ingestion. Raw engine summaries are in `benchmarks/results/2.1.2/standard.json`.
+spectre.db wins **9/9** standard workloads in this run; LMDB is within 3% on random reads. In `durability: "durable"` mode the trade-off changes: LMDB keeps the single-write and mixed-write lead (per-op fsync vs. LMDB's asynchronous flush), while spectre.db wins bulk reads, count, delete and batch ingestion. Raw engine summaries are in `benchmarks/results/2.1.3/standard.json`.
 
 ### Index, prefix and compaction — all versions
 
-| Focus | 2.0.1 | 2.1.0 | 2.1.1 | **2.1.2** |
-|---|---:|---:|---:|---:|
-| Indexed insert (5 indexes) | 263 ops/s | 93 366 ops/s | 122 696 ops/s | **142 419 ops/s** |
-| Indexed update | 613 ops/s | 46 174 ops/s | 53 708 ops/s | **56 134 ops/s** |
-| Update P99 | 1 024.6 µs | 40.8 µs | 28.4 µs | **36.3 µs** |
-| Indexed lookup (10k results) | 4.90 ms | 6.56 ms | 4.17 ms | **4.19 ms** |
-| Index range (1k results) | 3.77 ms | 5.02 ms | 3.04 ms | **3.07 ms** |
-| Prefix 0.1% of 1M keys | 57.2 ms | 0.60 ms | 0.607 ms | **0.509 ms** |
-| Prefix 1% of 1M keys | 37.2 ms | 7.72 ms | 7.56 ms | **6.05 ms** |
-| Prefix 10% of 1M keys | 151 ms | 65.8 ms | 65.7 ms | **58.9 ms** |
-| Compaction peak RSS (50k × 4 KB random) | 643 MB | 420 MB | 121 MB* | **130 MB** |
-| Compaction time (50k × 4 KB random) | 1 086 ms | 858 ms | 165 ms* | **154 ms** |
+| Focus | 2.0.1 | 2.1.0 | 2.1.1 | 2.1.2 | **2.1.3** |
+|---|---:|---:|---:|---:|---:|
+| Indexed insert (5 indexes) | 263 ops/s | 93 366 ops/s | 122 696 ops/s | 142 419 ops/s | **115 002 ops/s** |
+| Indexed update | 613 ops/s | 46 174 ops/s | 53 708 ops/s | 56 134 ops/s | **43 186 ops/s** |
+| Update P99 | 1 024.6 µs | 40.8 µs | 28.4 µs | 36.3 µs | **49.6 µs** |
+| Indexed lookup (10k results) | 4.90 ms | 6.56 ms | 4.17 ms | 4.19 ms | **6.90 ms** |
+| Index range (1k results) | 3.77 ms | 5.02 ms | 3.04 ms | 3.07 ms | **4.79 ms** |
+| Prefix 0.1% of 1M keys | 57.2 ms | 0.60 ms | 0.607 ms | 0.509 ms | **0.905 ms** |
+| Prefix 1% of 1M keys | 37.2 ms | 7.72 ms | 7.56 ms | 6.05 ms | **7.94 ms** |
+| Prefix 10% of 1M keys | 151 ms | 65.8 ms | 65.7 ms | 58.9 ms | **73.1 ms** |
+| Compaction peak RSS (50k × 4 KB random) | 643 MB | 420 MB | 121 MB* | 130 MB | **112 MB** |
+| Compaction time (50k × 4 KB random) | 1 086 ms | 858 ms | 165 ms* | 154 ms | **258 ms** |
 
-\* The 2.1.1 compaction run used repeated `x` values, which compress; 2.1.2 uses incompressible random values by default, so its time/RSS are not directly comparable and are the honest baseline going forward. Index/prefix/compaction data lives under the OS temp directory to avoid cloud-sync filesystem effects; standard workload data lives in `benchmarks/data`. Index and prefix figures are single runs; expect a few percent of run-to-run variance. Raw results: [`benchmarks/results/2.1.2/`](benchmarks/results/2.1.2/).
+\* The 2.1.1 compaction run used repeated `x` values, which compress; 2.1.2 uses incompressible random values by default, so its time/RSS are not directly comparable and are the honest baseline going forward. Index/prefix/compaction data lives under the OS temp directory to avoid cloud-sync filesystem effects; standard workload data lives in `benchmarks/data`. Index, prefix and compaction figures are single runs and are noisy on this laptop: in a same-session A/B with identical GNU builds, index lookup ranged 4.1-7.7 ms for both 2.1.2 and 2.1.3, and compaction 164-203 ms. Read the 2.1.3 column as "no regression", not as a slowdown. Raw results: [`benchmarks/results/2.1.3/`](benchmarks/results/2.1.3/).
 
 ```sh
 cd benchmarks

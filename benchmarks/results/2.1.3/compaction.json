@@ -1,0 +1,18 @@
+{
+  "package": "..",
+  "version": "2.1.3",
+  "native": true,
+  "n": 50000,
+  "valueBytes": 4096,
+  "valueMode": "random",
+  "insertMs": 893.1808,
+  "insertOps": 55980,
+  "compactMs": 257.5365,
+  "rssBefore": 365907968,
+  "rssAfter": 370176000,
+  "rssPeak": 477835264,
+  "rssPeakDelta": 111927296,
+  "diskBefore": 205805332,
+  "diskAfter": 205789067,
+  "entries": 50000
+}

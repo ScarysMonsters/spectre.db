@@ -1,0 +1,31 @@
+{
+  "package": "..",
+  "version": "2.1.3",
+  "native": true,
+  "n": 1000000,
+  "zones": 10,
+  "groups": 100,
+  "perGroup": 1000,
+  "insertMs": 4340.364,
+  "insertOps": 230395,
+  "results": {
+    "10%": {
+      "prefix": "zone9.",
+      "rows": 100000,
+      "ms": 73.118,
+      "rowsPerSec": 1367652
+    },
+    "1%": {
+      "prefix": "zone9.group9",
+      "rows": 11000,
+      "ms": 7.9362,
+      "rowsPerSec": 1386054
+    },
+    "0.1%": {
+      "prefix": "zone9.group99.",
+      "rows": 1000,
+      "ms": 0.9049,
+      "rowsPerSec": 1105094
+    }
+  }
+}
